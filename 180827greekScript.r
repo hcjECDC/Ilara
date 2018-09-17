@@ -34,6 +34,7 @@ sd1 <- 0.92 # standard deviation of normal distribution for serial interval (day
 data0 <- read_csv("workingGreekData.csv", col_names=TRUE)
 MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = col_character()))  # need to specify residencePostcode as character here because two entries include letters, not just numbers. Otherwise parser would assume it was a column of integers.
 popData <- read_csv("pop2015.csv", col_names=TRUE) 
+muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
 
 latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv the home town co-ordinates are included
 
@@ -187,6 +188,7 @@ setwd(dir)
 # Convert names from Greek to Latin script
 #latinNames <- stri_trans_general(mapMunc$LEKTIKO, "Greek-Latin")
 #write.csv(latinNames, file = "muncNames.csv", row.names = FALSE)	
+#write.csv(mapMunc$KALCODE, file = "muncCodes.csv", row.names = FALSE)	
 
 # Format data for mapping
 thisData <- data0 %>% filter(is.na(homeLat)==FALSE) # exclude cases with missing latitude/longitude
@@ -196,20 +198,27 @@ mapHome <- st_as_sf(data1, coords = c('homeLon', 'homeLat'), crs = "+proj=longla
 mapHosp <- st_as_sf(hospData, coords = c('hosp1Lon', 'hosp1Lat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 #mapSchool <- st_as_sf(data1, coords = c('schoolLon', 'schoolLat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 
-# Compare with LatLong matches reported region (safety check as Lat and Long derived from place name)
-#matrix1 <- sf::st_intersects(mapHome, mapGreece, sparse = FALSE) # matrix showing which NUTS-3 region point belongs to.
-matrix1 <-  sf::st_intersects(mapHome, mapMunc, sparse = FALSE) # matrix showing which municipality point belongs to.
-
 # N.B. Does it matter that these values are not planar? Could convert (see end of script)
-#colnames(matrix1) <- mapGreece$geo # assign names of NUTS-3 regions
-colnames(matrix1) <- mapMunc$KALCODE # assign names of NUTS-3 regions
+# Find region of data point from lat. and long.
+# Compare with LatLong matches reported region (safety check as Lat and Long derived from place name)
+matrix1 <- sf::st_intersects(mapHome, mapGreece, sparse = FALSE) # matrix showing which NUTS-3 region point belongs to.
+colnames(matrix1) <- mapGreece$geo # assign names of NUTS-3 regions
 rownames(matrix1) <- mapHome$ourID
-thisData <- thisData %>% mutate(findMunc = colnames(matrix1)[apply(matrix1,1,which.max)]) # Find name of NUTS-3 region corresponding to Lat. and Long.
+thisData <- thisData %>% mutate(findRegion = colnames(matrix1)[apply(matrix1,1,which.max)]) # Find name of NUTS-3 region corresponding to Lat. and Long.
 
 checkThese <- thisData %>% filter(findRegion != placeOfResidence) %>%
 			select(ourID, placeOfResidence, homeTown, homeLat, homeLon, findRegion, placeOfNotification) #%>%
-			#print(n=1000)
+			print(n=1000)
 #write.csv(checkThese, file = "180509checkPlaces.csv", row.names = FALSE)			   
+
+# Find municipality of data point from lat. and long.
+matrix2 <-  sf::st_intersects(mapHome, mapMunc, sparse = FALSE) # matrix showing which municipality point belongs to.
+colnames(matrix2) <- muncPopData$muncName # assign names of NUTS-3 regions
+rownames(matrix2) <- mapHome$ourID
+thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,which.max)]) # Find name of municipality corresponding to Lat. and Long.
+
+# Find population of municipality
+thisData <- left_join(thisData, muncPopData, by="muncName")
 
 # Plot MMR uptake with cases
 map2 <- tm_shape(mapGreece) + tm_fill("lightgrey") +
