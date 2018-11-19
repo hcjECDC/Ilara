@@ -2,7 +2,7 @@ rm(list=ls())
 dir <- "P:/Measles/Greek data/"
 setwd(dir)
 library(plyr)
-library(ggmap)
+library(ggmap) #for LatLong API
 library(devtools)
 #install_github("ropengov/eurostat")
 library(eurostat)
@@ -21,26 +21,20 @@ options(digits=8)
 
 ## In matrices, i (row) is infected by j (column)
 
-# Create custom colour scale
+## Create custom colour scale
 myColours <- c("26 107 133", "241 214 118", "168 45 23")
 ECDCcol <- sapply(strsplit(myColours, " "), function(x)
     rgb(x[1], x[2], x[3], maxColorValue=255))  # convert to hexadecimal
 
-# Measles parameters
+## Measles parameters
 mean1 <- 11.7 # mean of normal distribution for serial interval (days) ##Vink et al. 2014
 sd1 <- 0.92 # standard deviation of normal distribution for serial interval (days)  ##Vink et al. 2014
 
-# Read in line list
+## Read in line list
 data0 <- read_csv("workingGreekData.csv", col_names=TRUE)
-MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = col_character()))  # need to specify residencePostcode as character here because two entries include letters, not just numbers. Otherwise parser would assume it was a column of integers.
-popData <- read_csv("pop2015.csv", col_names=TRUE) 
-muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
-
-latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv the home town co-ordinates are included
-
-data0$onsetDate <- as.Date(data0$symptomOnset, "%d/%m/%Y")  # convert to date format
-data0$notifyDate <- as.Date(data0$dateNotification, "%d/%m/%Y")  # convert to date format
-data0$hospitalDate <- as.Date(data0$dateHospitalisation, "%d/%m/%Y")  # convert to date format
+data0$onsetDate <- as.Date(data0$onsetDate, "%d/%m/%Y")  # convert to date format
+data0$notifyDate <- as.Date(data0$notifyDate, "%d/%m/%Y")  # convert to date format
+data0$hospitalDate <- as.Date(data0$hospitalDate, "%d/%m/%Y")  # convert to date format
 data0$hosp1Lat <- as.numeric(data0$hosp1Lat)
 data0$hosp1Lon <- as.numeric(data0$hosp1Lon)
 data0$exp1Lat <- as.numeric(data0$exp1Lat)
@@ -49,22 +43,23 @@ data0$exp2Lat <- as.numeric(data0$exp2Lat)
 data0$exp2Lon <- as.numeric(data0$exp2Lon)
 data0$HCWHospLat <- as.numeric(data0$HCWHospLat)
 data0$HCWHospLon <- as.numeric(data0$HCWHospLon)
-data0$deathDate <- as.Date(data0$dateDeath, "%d/%m/%Y")  # convert to date format
-data0$dischargeDate <- as.Date(data0$dateDischarge, "%d/%m/%Y")  # convert to date format
-data0$symptomOnset <- NULL  # remove old variable
-data0$dateNotification <- NULL  # remove old variable
-data0$dateHospitalisation <- NULL  # remove old variable
-data0$dateDeath <- NULL  # remove old variable
-data0$dateDischarge <- NULL  # remove old variable
-data0 <- data0[order(data0$onsetDate),]
+data0$deathDate <- as.Date(data0$deathDate, "%d/%m/%Y")  # convert to date format
+data0$dischargeDate <- as.Date(data0$dischargeDate, "%d/%m/%Y")  # convert to date format
+
+data0 <- data0[order(data0$onsetDate),] # order by date of symptom onset 
 
 write.csv(data0, file = "180509greekData.csv", row.names = FALSE)			
+
+MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = col_character()))  # need to specify residencePostcode as character here because two entries include letters, not just numbers. Otherwise parser would assume it was a column of integers.
+popData <- read_csv("pop2015.csv", col_names=TRUE) 
+muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
+latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv the home town co-ordinates are included
 
 ##################
 ## MMR coverage ##
 ##################
 
-# Rearrange prescribing data from long to wide format (group all vaccine codes together (all MMR))
+## Rearrange prescribing data from long to wide format (group all vaccine codes together (all MMR))
 data2 <- MMRData %>% 
  mutate(purchaseDate = substr(purchaseDate, 1, 10))%>% # drop times
  select(-initialOrder, -vaccineCode) %>% # Need to drop this otherwise record number coerces R into keeping all rows
@@ -75,7 +70,7 @@ data2 <- MMRData %>%
  unite("datePlace", c(purchaseDate, pharmPostcode, pharmDistrict)) %>%
  spread(dose, datePlace, fill="")
 	
-# Separate out date and place fields. Label columns
+## Separate out date and place fields. Label columns
 data3 <- data2 %>% select(id, dateOfBirth, gender, doses, resPostcode, resDistrict, resNUTS3)
 
 for(i in (ncol(data3)+1):(ncol(data2))){   # NB. Start counting after constant columns
@@ -86,7 +81,7 @@ for(i in (ncol(data3)+1):(ncol(data2))){   # NB. Start counting after constant c
 
 #write.csv(data3, file = "180815MMRoutput.csv", row.names = FALSE)	
 
-# Number of doses by NUTS-3 
+## Number of doses by NUTS-3 
 oneDose <- data3 %>% filter(resNUTS3 != "#N/A" & doses==1) %>%
 					arrange(resNUTS3) %>%
 					group_by(resNUTS3) %>%
@@ -112,7 +107,7 @@ MMRcoverage <- full_join(MMRcoverage, twoPlusDoses, by="NUTS3Code") %>%
 			   mutate(coverage2plus = twoPlusDoses/population) %>%
 			   mutate(overallCoverage = coverage1 + coverage2plus) 
 			   
-# 2010 NUTS-3 code (Attiki) was subdivided into 7 codes in 2013 but we need to update population data. Average for now.
+## 2010 NUTS-3 code (Attiki) was subdivided into 7 codes in 2013 but we need to update population data. Average for now.
 athensCodes <- c(paste("EL30", seq(1,7), sep=""))			   
 expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
 								slice(rep(1, each=7)) %>%	          # copy Attiki entry 7 times
@@ -121,13 +116,11 @@ expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
 								
 										   
 MMRcoverage <- 	bind_rows(MMRcoverage[-1,], expandAthens)	%>%	   
-			    mutate(geo = NUTS3Code)   # to join with Eurostat shapefile 
+			    rename(geo = NUTS3Code)   # to join with Eurostat shapefile 
 							
-							
-							
-			   
-# Classes for coverage		
-# 1 dose
+									   
+## Define classes for plotting coverage		
+## 1 dose
 lower <- 0.6
 upper <- 1
 sep = "-"
@@ -139,7 +132,7 @@ labs1 <- c("0-0.59", paste(seq(lower, upper - 0.05, by = by),
 		   
 MMRcoverage$classCoverage1 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.05)), labels = labs1, include.lowest=FALSE, right=FALSE)
    
-# 2+ doses
+## 2+ doses
 lower <- 0.3
 upper <- 1
 sep = "-"
@@ -150,26 +143,31 @@ labs2 <- c("0-0.29", paste(seq(lower, upper - 0.1, by = by),
                  sep = sep))
 		   
 MMRcoverage$classCoverage2 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
-
-
-#mapCoverage <- MMRcoverage %>% select(geo, classCoverage)
-			 
+		 
 ###################
 ## Plotting maps ##			   
 ###################
 
-# Plot Greece
-mapGreece <- get_eurostat_geospatial(output_class = "sf", resolution = "10", nuts_level = 3)
+## Plot Greece
+mapGreece <- get_eurostat_geospatial(output_class = "sf", resolution = "60", nuts_level = 3) # Bug in EUROSTAT package (16/11) that prevents 
 mapGreece <- mapGreece %>% filter(CNTR_CODE == "EL")
 mapGreece %>% select(geo) %>%
 				plot()
 
-# Plot MMR coverage				  
-mapCoverage <- left_join(mapGreece, MMRcoverage, by="geo") %>%
+## Plot Athens
+mapAthens <- mapGreece %>% filter(NUTS_ID %in% athensCodes) 
+mapAthens %>% select(geo) %>%
+				plot()
+				
+## Plot MMR coverage				  
+mapCoverage <- left_join(mapGreece, MMRcoverage, by="geo") %>%   # combine geographic data with coverage
 			   filter(geo != "NA")
 
+mapCoverageAthens <- left_join(mapAthens, MMRcoverage, by="geo") %>%   # combine geographic data with coverage
+			   filter(geo != "NA")
 
-# Reading in shapefiles
+## Reading in shapefiles (different spatial resolutions)
+## Local communities
 #localDir <- paste(dir,"Shapefiles/LocalCommunities/", sep="")	
 #setwd(localDir)		
 #localMap <- st_read("local.shp")
@@ -177,21 +175,25 @@ mapCoverage <- left_join(mapGreece, MMRcoverage, by="geo") %>%
 #				plot()
 #setwd(dir)
 
+## Kallikratikoi
 muncDir <- paste(dir,"Shapefiles/Kallikratikoi/", sep="")	
 setwd(muncDir)		
 mapMunc <- st_read("Kallikratikoi.shp")
 mapMunc <- st_transform(mapMunc, crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 mapMunc %>% select(geometry) %>%
-				plot()
+#				plot()
 setwd(dir)
-
-# Convert names from Greek to Latin script
-#latinNames <- stri_trans_general(mapMunc$LEKTIKO, "Greek-Latin")
-#write.csv(latinNames, file = "muncNames.csv", row.names = FALSE)	
-#write.csv(mapMunc$KALCODE, file = "muncCodes.csv", row.names = FALSE)	
 
 # Format data for mapping
 thisData <- data0 %>% filter(is.na(homeLat)==FALSE) # exclude cases with missing latitude/longitude
+
+## Code population groups
+thisData <- thisData %>%      
+  mutate(popGroup = case_when(isRoma==1    ~ 1,    	## Roma
+							  isMigrant==1 ~ 2,		## Migrant
+							  isHCW==1     ~ 3,		## Healthcare worker
+							  TRUE         ~ 4))	## General population
+
 data1 <- thisData %>% group_by(week=ceiling_date(onsetDate, "week")) # group by week for plotting (this is 'week ending...')
 hospData <- data0 %>% filter(is.na(hosp1Lat)==FALSE) # exclude cases with missing latitude/longitude
 mapHome <- st_as_sf(data1, coords = c('homeLon', 'homeLat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
@@ -206,9 +208,10 @@ colnames(matrix1) <- mapGreece$geo # assign names of NUTS-3 regions
 rownames(matrix1) <- mapHome$ourID
 thisData <- thisData %>% mutate(findRegion = colnames(matrix1)[apply(matrix1,1,which.max)]) # Find name of NUTS-3 region corresponding to Lat. and Long.
 
-checkThese <- thisData %>% filter(findRegion != placeOfResidence) %>%
-			select(ourID, placeOfResidence, homeTown, homeLat, homeLon, findRegion, placeOfNotification) #%>%
-			print(n=1000)
+## Check whether inferred lat and long match with region
+#checkThese <- thisData %>% filter(findRegion != placeOfResidence) %>%
+			#select(ourID, placeOfResidence, homeTown, homeLat, homeLon, findRegion, placeOfNotification)# %>%
+			#print(n=1000)
 #write.csv(checkThese, file = "180509checkPlaces.csv", row.names = FALSE)			   
 
 # Find municipality of data point from lat. and long.
@@ -221,21 +224,35 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
 # Plot MMR uptake with cases
-map2 <- tm_shape(mapGreece) + tm_fill("lightgrey") +
+map2 <- qtm(mapGreece) + tm_fill("lightgrey") + 
 tm_shape(mapCoverage, is.master = TRUE) +
-tm_polygons("classCoverage1", title = "MMR uptake",
-palette = "Greens", border.col = "white") +
+tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
 #tm_text("geo", just = "center") +
 #tm_scale_bar()# +
 tm_format_Europe(legend.position = c("right", "top"), attr.outside = TRUE,
-				 main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1)+
- tm_shape(mapHome) + tm_dots(col="darkred", size=0.05)#+
+				 main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1) +
+ tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05)#+
 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
  
- map2
+print(map2) 
 	
-plotCases <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.05) +
-							  tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
+# Plot MMR uptake with cases
+map3 <- qtm(mapAthens) + tm_fill("lightgrey") + 
+tm_shape(mapCoverageAthens, is.master = TRUE) +
+tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
+#tm_text("geo", just = "center") +
+#tm_scale_bar()# +
+#tm_format_Europe(legend.position = "none", attr.outside = TRUE,
+				# main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1) +
+ tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4 & placeOfResidence %in% athensCodes)) + tm_dots(col="darkred", size=0.05)#+
+# tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
+ 
+print(map3)	
+	
+
+plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05) +
+							  tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4)) + tm_dots(col="darkblue", size=0.05) 
+							 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
 print(plotCases)
 
 plot_anim <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.05) + tm_facets(by = "week", free.coords = FALSE, nrow = 6, ncol = 10) # plot cases by week
@@ -331,7 +348,7 @@ distIndexCase <- function(indexCase){
 
 
 # Matrix of distances between each pair of cases
-distanceMatrix <- lapply(caseIndices$ID[-length(caseIndices$ID)], distIndexCase)
+distanceMatrix <- lapply(caseIndices1$ID[-length(caseIndices1$ID)],distIndexCase)
 distanceMatrix <- bind_rows(distanceMatrix)
 distanceMatrix <- distanceMatrix %>% spread(case2,value)
 
@@ -449,14 +466,14 @@ labs <- c("0-1", "2-4", paste(seq(5, upper - by, by = by),
 thisData$ageGroup <- cut(thisData$age1, breaks = c(0,2,seq(5,upper,by=5),70,80,Inf), labels = labs, include.lowest=FALSE, right=FALSE)
 
 	
-## Code age groups
-thisData <- thisData %>%      
-  mutate(popGroup = case_when(isRoma==1    ~ 1,    	## Roma
-							  isMigrant==1 ~ 2,		## Migrant
-							  isHCW==1     ~ 3,		## Healthcare worker
-							  TRUE         ~ 4))	## General population
+## Code population groups (This is now done before map plotting, still included here in case bugs crop up later...)
+#thisData <- thisData %>%      
+#  mutate(popGroup = case_when(isRoma==1    ~ 1,    	## Roma
+#							  isMigrant==1 ~ 2,		## Migrant
+#							  isHCW==1     ~ 3,		## Healthcare worker
+#							  TRUE         ~ 4))	## General population
 
-# Create matrix of age groups
+# Create matrix of population groups
 popMatrix <- data.matrix(nLike3)
 popMatrix <- cbind(thisData$popGroup, nLike3) # Define matrix with population group in first row and column and likelihood of i being infected by j in body
 popMatrix <- rbind(c(0,thisData$popGroup), popMatrix) 
@@ -890,4 +907,15 @@ ggplot(data = hospitals, aes(x=nCases)) +
   theme(legend.position="none")# +
   
   
- 
+  
+  
+#####################
+## Useful snippets ##
+#####################
+
+
+## Convert municipality names from Greek to Latin script (needs to be sense-checked)
+latinNames <- stri_trans_general(mapMunc$LEKTIKO, "Greek-Latin")
+write.csv(latinNames, file = "muncNames.csv", row.names = FALSE)	
+write.csv(mapMunc$KALCODE, file = "muncCodes.csv", row.names = FALSE)	
+    
