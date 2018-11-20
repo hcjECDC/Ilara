@@ -93,7 +93,13 @@ twoPlusDoses <- data3 %>% filter(resNUTS3 != "#N/A" & doses>1) %>%
 						  group_by(resNUTS3) %>%
 					      summarise(Total = n())%>%
 						  rename(NUTS3Code = resNUTS3) 
-						  
+
+popPostcode <- popData %>% filter(is.na(postcode)==FALSE) %>%
+							arrange(postcode) %>%
+							group_by(postcode) %>%
+							summarise(total = sum(popCohort15)) %>%
+							mutate(relSize = total/max(total))
+					   
 pop2015 <- popData %>% arrange(NUTS3Code) %>%
 					   group_by(NUTS3Code) %>%
 					   summarise(Total = sum(popCohort15))
@@ -180,9 +186,10 @@ muncDir <- paste(dir,"Shapefiles/Kallikratikoi/", sep="")
 setwd(muncDir)		
 mapMunc <- st_read("Kallikratikoi.shp")
 mapMunc <- st_transform(mapMunc, crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
-mapMunc %>% select(geometry) %>%
+#mapMunc %>% select(geometry) %>%
 #				plot()
 setwd(dir)
+
 
 # Format data for mapping
 thisData <- data0 %>% filter(is.na(homeLat)==FALSE) # exclude cases with missing latitude/longitude
@@ -214,6 +221,10 @@ thisData <- thisData %>% mutate(findRegion = colnames(matrix1)[apply(matrix1,1,w
 			#print(n=1000)
 #write.csv(checkThese, file = "180509checkPlaces.csv", row.names = FALSE)			   
 
+#######################
+## Population values ##
+#######################
+
 # Find municipality of data point from lat. and long.
 matrix2 <-  sf::st_intersects(mapHome, mapMunc, sparse = FALSE) # matrix showing which municipality point belongs to.
 colnames(matrix2) <- muncPopData$muncName # assign names of NUTS-3 regions
@@ -223,28 +234,48 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 # Find population of municipality
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
+
+#####################
+## Plot MMR uptake ##
+#####################
+
 # Plot MMR uptake with cases
-map2 <- qtm(mapGreece) + tm_fill("lightgrey") + 
+map2 <- qtm(mapGreece) +# tm_fill("lightgrey") + 
 tm_shape(mapCoverage, is.master = TRUE) +
-tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
+	tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
 #tm_text("geo", just = "center") +
 #tm_scale_bar()# +
+tm_shape(mapHome %>% filter(popGroup == 4)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkred", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 1)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkblue", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 3)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="lightblue", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkorange", shape=20, size=0.1) +
 tm_format_Europe(legend.position = c("right", "top"), attr.outside = TRUE,
-				 main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1) +
- tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05)#+
+				 main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1)# +
 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
  
 print(map2) 
 	
 # Plot MMR uptake with cases
-map3 <- qtm(mapAthens) + tm_fill("lightgrey") + 
+map3 <- qtm(mapAthens) +# tm_fill("lightgrey") + 
 tm_shape(mapCoverageAthens, is.master = TRUE) +
 tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
 #tm_text("geo", just = "center") +
 #tm_scale_bar()# +
 #tm_format_Europe(legend.position = "none", attr.outside = TRUE,
 				# main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1) +
- tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4 & placeOfResidence %in% athensCodes)) + tm_dots(col="darkred", size=0.05)#+
+tm_shape(mapHome %>% filter(popGroup == 4 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkred", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 1 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkblue", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 3 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="lightblue", shape=20, size=0.1) +
+tm_shape(mapHome %>% filter(popGroup == 2 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkorange", shape=20, size=0.1) 
+
 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
  
 print(map3)	
@@ -348,7 +379,7 @@ distIndexCase <- function(indexCase){
 
 
 # Matrix of distances between each pair of cases
-distanceMatrix <- lapply(caseIndices1$ID[-length(caseIndices1$ID)],distIndexCase)
+distanceMatrix <- lapply(caseIndices$ID[-length(caseIndices$ID)],distIndexCase)
 distanceMatrix <- bind_rows(distanceMatrix)
 distanceMatrix <- distanceMatrix %>% spread(case2,value)
 
