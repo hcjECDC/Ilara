@@ -17,7 +17,7 @@ library(kSamples)
 library(tidyverse)
 library(purrrlyr)
 library(dplyr) # this needs to be loaded last due to conflicts with plyr
-options(digits=8)
+options(pillar.sigfig = 6) # set number of significant figures to be displayed as standard
 
 ## In matrices, i (row) is infected by j (column)
 
@@ -53,7 +53,7 @@ write.csv(data0, file = "180509greekData.csv", row.names = FALSE)
 MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = col_character()))  # need to specify residencePostcode as character here because two entries include letters, not just numbers. Otherwise parser would assume it was a column of integers.
 popData <- read_csv("pop2015.csv", col_names=TRUE) 
 muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
-latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv the home town co-ordinates are included
+#latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv co-ordinates and postcodes are included
 
 ##################
 ## MMR coverage ##
@@ -99,6 +99,7 @@ popPostcode <- popData %>% filter(is.na(postcode)==FALSE) %>%
 							group_by(postcode) %>%
 							summarise(total = sum(popCohort15)) %>%
 							mutate(relSize = total/max(total))
+write.csv(popPostcode, file = "popPostcode.csv", row.names = FALSE)								
 					   
 pop2015 <- popData %>% arrange(NUTS3Code) %>%
 					   group_by(NUTS3Code) %>%
@@ -235,6 +236,10 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
 
+# Find population of postcode
+thisData <- left_join(thisData, popPostcode, by="postcode")
+
+
 #####################
 ## Plot MMR uptake ##
 #####################
@@ -314,8 +319,8 @@ distanceData <- thisData %>% select(ID, homeTown, homeLat, homeLon, hosp1, hosp1
 							 separate(locLat, c("place", "lat", "lon"), sep="[*]") %>%
 							 filter(lat != "NA") 
 
-distanceData <- distanceData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # no. of decimal places
-splitDistance <- split(distanceData, as.numeric(distanceData$ID))
+distanceData <- distanceData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # total list of cases by location
+splitDistance <- split(distanceData, as.numeric(distanceData$ID)) # list of locations for each case (including co-ordinates, place, dates and type of location)
 caseIndices <- distanceData %>% select(ID) %>% distinct(ID) 							 
 
 # List of locations for being infected
@@ -333,9 +338,9 @@ infLocData <- thisData %>% select(ID, homeTown, homeLat, homeLon, schoolCode, sc
 							 filter(lat != "NA") 
 
 infLocData <- infLocData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # no. of decimal places
-splitInfDistance <- split(infLocData, as.numeric(infLocData$ID))
+splitInfDistance <- split(infLocData, as.numeric(infLocData$ID)) # list of locations where each case may have been infected (including co-ordinates, place, dates and type of location)
 
-## Find shortest distance between all locations of transmitter and pre-admission locations of receiver
+## Find shortest distance between all locations of infecter and pre-admission locations of infectee
 distIndexCase <- function(indexCase){
   # Co-ordinates for thisCase
   thisCase <- splitDistance[[indexCase]] %>% select(lon,lat)
@@ -351,7 +356,7 @@ distIndexCase <- function(indexCase){
       distanceLocationCase <- function(oneLocCase2){
       coordsCase2 <- as.matrix(splitInfDistance[[oneLocCase2]] %>% select(lon,lat)) 
 	  distLocCase2 <- distVincentyEllipsoid(coordsCase2, oneLocationM)  # calculate in metres using Vincenty distance
-      return(min(distLocCase2)) # shortest distance between unPoint and country which index is unIndicePays2
+      return(min(distLocCase2)) 
    }
    
    # Find minimum distance to each other case
@@ -379,7 +384,8 @@ distIndexCase <- function(indexCase){
 
 
 # Matrix of distances between each pair of cases
-distanceMatrix <- lapply(caseIndices$ID[-length(caseIndices$ID)],distIndexCase)
+#distanceMatrix <- lapply(caseIndices$ID[-length(caseIndices$ID)],distIndexCase)
+distanceMatrix <- lapply(caseIndices$ID[1:4],distIndexCase)
 distanceMatrix <- bind_rows(distanceMatrix)
 distanceMatrix <- distanceMatrix %>% spread(case2,value)
 
@@ -872,12 +878,19 @@ points(nLike2[i,], col="blue")
 ## Code for finding lat. and long. ##
 #####################################
 
-distinctPlace <- data0 %>% distinct(homeTown) %>% top_n()
+# List all locations 
+distinctPlace <- data0 %>% distinct(homeTown, .keep_all=TRUE) %>% rename(place = homeTown, lat = homeLat, lon = homeLon) %>% select(place, lat, lon)
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(hosp1Name, .keep_all=TRUE) %>% rename(place = hosp1Name, lat = hosp1Lat, lon = hosp1Lon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(hosp2Name, .keep_all=TRUE) %>% rename(place = hosp2Name, lat = hosp2Lat, lon = hosp2Lon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(hosp3Name, .keep_all=TRUE) %>% rename(place = hosp3Name, lat = hosp3Lat, lon = hosp3Lon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(HCWHospName, .keep_all=TRUE) %>% rename(place = HCWHospName, lat = HCWHospLat, lon = HCWHospLon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(exp1Name, .keep_all=TRUE) %>% rename(place = exp1Name, lat = exp1Lat, lon = exp1Lon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(exp2Name, .keep_all=TRUE) %>% rename(place = exp2Name, lat = exp2Lat, lon = exp2Lon) %>% select(place, lat, lon)) 
+distinctPlace <- bind_rows(distinctPlace, data0 %>% distinct(schoolCode, .keep_all=TRUE) %>% rename(place = schoolCode, lat = schoolLat, lon = schoolLon) %>% select(place, lat, lon)) 
 
 # Obtain lat. and long. from Google. It is possible to obtain further information on boundaries of the location etc.
 #distinctPlace <- distinctPlace %>% mutate(geocode(distinctPlace$homeTown))
-a <- as_tibble(geocode(distinctPlace$homeTown, output = "all") %>% 
-			   select(lat, lon, postal_code)) %>%
+a <- as_tibble(geocode(distinctPlace, output = "all", source="google")) %>%   # can choose between source="google" and source = "dsk"
 			   mutate(postal_code = as.character(postal_code))
 distinctPlace2 <- bind_cols(distinctPlace,a)
 
@@ -892,10 +905,12 @@ distinctPlace2 <- left_join(distinctPlace2, distinctPlace1, by="homeTown") %>%
 									   lon = ifelse(is.na(lon.y), lon.x, lon.y),
 									   postal_code = ifelse(is.na(postal_code.y), postal_code.x, postal_code.y)) 
 
-write.csv(distinctPlace2, file = "postcodes.csv", row.names = FALSE)			   
+write.csv(distinctPlace2, file = "latLong.csv", row.names = FALSE)			   
 
-# Postcodes from lat. and lon.
-postcodes <- revgeo(latLong$lon, latLong$lat, output="frame") %>% select(zip)
+# Alternative method for obtaining postcodes from lat. and lon.
+postcodes <- revgeo(distinctPlace$lon, distinctPlace$lat, output="frame") %>% select(zip)
+postcodes <- bind_cols(distinctPlace, postcodes)
+write.csv(postcodes, file = "postcodes.csv", row.names = FALSE)
 
 # Date checking
 preOnset <- thisData %>% filter(hospitalDate < onsetDate)
@@ -924,7 +939,7 @@ hospData <- thisData %>% gather(key = anyHospital, value = code, hospVars) %>%  
 						drop_na(code) %>% 
 						arrange(ourID)
 						  
-hospData %>% group_by(code) %>%
+hospData %>% group_by(code) 
             
 hospitals <- hospData %>% group_by(code) %>%
 						  summarise(nCases = n())
