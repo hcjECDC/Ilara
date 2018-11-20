@@ -340,46 +340,32 @@ infLocData <- thisData %>% select(ID, homeTown, homeLat, homeLon, schoolCode, sc
 infLocData <- infLocData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # no. of decimal places
 splitInfDistance <- split(infLocData, as.numeric(infLocData$ID)) # list of locations where each case may have been infected (including co-ordinates, place, dates and type of location)
 
-## Find shortest distance between all locations of infecter and pre-admission locations of infectee
+## Find shortest distance between all locations of infecter and pre-infection locations of infectee
 distIndexCase <- function(indexCase){
   # Co-ordinates for thisCase
-  thisCase <- splitDistance[[indexCase]] %>% select(lon,lat)
+  thisCase <- splitDistance[[indexCase]] %>% select(location,lon,lat)
   
   # Reduce to cases for which distance has not yet been calculated
-  otherCases <- caseIndices %>% filter(caseIndices > indexCase)
+  otherCases <- as_tibble(caseIndices %>% filter(caseIndices > indexCase))
   otherCases <- as.character(otherCases$ID)  
    
-  distanceLocation <- function(oneLocation){
-    oneLocationM <- as.matrix(oneLocation)     
-    
-    # Compute distance between this location for thisCase and each location of otherCase
-      distanceLocationCase <- function(oneLocCase2){
-      coordsCase2 <- as.matrix(splitInfDistance[[oneLocCase2]] %>% select(lon,lat)) 
-	  distLocCase2 <- distVincentyEllipsoid(coordsCase2, oneLocationM)  # calculate in metres using Vincenty distance
-      return(min(distLocCase2)) 
+  # Compute distance between this location for thisCase and each location of otherCase
+  distanceBetweenCases <- function(otherCase){
+	  coordsOtherCase <- as.matrix(splitInfDistance[[otherCase]] %>% select(lon,lat)) 
+      mat <- distm(thisCase[,c('lon','lat')], coordsOtherCase[,c('lon','lat')], fun=distVincentyEllipsoid)
+	  colnames(mat) <- as.list(splitInfDistance[[otherCase]]$location) # label columns with locations of infectee
+	  rownames(mat) <- as.list(oneLocation$location)
+	  distances <- melt(mat) # distances between each pair of locations
+	  #cat(c("Calculating distance between",indexCase,"and",otherCase, "\n"))
+	  return(suppressMessages({distances %>% top_n(-1) %>% filter(1:n() == 1)})) # return the row of the minimum distance (only the first in the case of a tie)
    }
    
    # Find minimum distance to each other case
-   distLocCase2 <- lapply(otherCases, distanceLocationCase)
-   minDistances <- unlist(distLocCase2)
+   distBetween <- lapply(otherCases, distanceBetweenCases)
+   minDistances <- as_tibble(suppressMessages({melt(distBetween)})) %>% select(Var1, Var2, value) # shortest distance between each pair of cases, including location (e.g. home, hospital, school)
+   minDistances <- minDistances %>% mutate(otherCase = otherCases, indexCase = indexCase)
    return(minDistances)
-  }
-  
-  # Create table with shortest distance to each other case (use 'by_row' from purrrlyr)
-  distanceCases <- by_row(thisCase, distanceLocation, .collate="cols")
-  distanceCases <- select(distanceCases, -c(lat,lon)) # remove lat and lon. of index case
-  
-  
-  # Shortest distances between oneLocation and every other case
-  if(count(distanceCases)==1){
-    # For the last case on the list
-    shortestDistance <- distanceCases
-  }else{
-    shortestDistance <- as_tibble(apply(distanceCases, 2, min))
-  }
-  
-  result <- bind_cols(case1 = rep(indexCase, nrow(shortestDistance)),case2 = otherCases, dist = shortestDistance)
-  return(result)
+   
 }
 
 
