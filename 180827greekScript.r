@@ -18,6 +18,8 @@ library(tidyverse)
 library(purrrlyr)
 library(dplyr) # this needs to be loaded last due to conflicts with plyr
 options(pillar.sigfig = 6) # set number of significant figures to be displayed as standard
+api <- "AIzaSyBn2K2--zdOLXfhkBqSXr6XAl7T0t4Pc-M" # Key for using Google Maps API to obtain geo. data
+register_google(key = api)
 
 ## In matrices, i (row) is infected by j (column)
 
@@ -63,7 +65,7 @@ muncPopData <- read_csv("popMunc.csv", col_names=TRUE)
 data2 <- MMRData %>% 
  mutate(purchaseDate = substr(purchaseDate, 1, 10))%>% # drop times
  select(-initialOrder, -vaccineCode) %>% # Need to drop this otherwise record number coerces R into keeping all rows
- arrange(id, purchaseDate) %>% # Ensure that dates are in correct order before inferrinstr(g dose number
+ arrange(id, purchaseDate) %>% # Ensure that dates are in correct order before inferring dose number
  group_by(id) %>% 
  dplyr::mutate(dose = row_number()) %>% # Dose number for spreading data
  dplyr::mutate(doses = max(row_number())) %>% # Total number of doses for record
@@ -235,7 +237,6 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 # Find population of municipality
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
-
 # Find population of postcode
 thisData <- left_join(thisData, popPostcode, by="postcode")
 
@@ -304,7 +305,7 @@ plot_anim <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.
 
 # List of locations for transmitting (include hospitals where patient)
 locVars <- c("home", "school", "hospLoc1", "hospLoc2", "hospLoc3", "expLoc1", "expLoc2", "HCWLoc")
-distanceData <- thisData %>% select(ID, homeTown, homeLat, homeLon, hosp1, hosp1Lat, hosp1Lon, hosp2, hosp2Lat, hosp2Lon, hosp3, hosp3Lat, hosp3Lon, schoolCode, schoolLat, schoolLon, exp1Code, exp1Lat, exp1Lon, exp2Code, exp2Lat, exp2Lon, HCWHospCode, HCWHospLat, HCWHospLon, onsetDate, hospitalDate, hospitalisationLag) %>%
+distanceData <- thisData %>% select(ourID, homeTown, homeLat, homeLon, hosp1, hosp1Lat, hosp1Lon, hosp2, hosp2Lat, hosp2Lon, hosp3, hosp3Lat, hosp3Lon, schoolCode, schoolLat, schoolLon, exp1Code, exp1Lat, exp1Lon, exp2Code, exp2Lat, exp2Lon, HCWHospCode, HCWHospLat, HCWHospLon, onsetDate, hospitalDate, hospitalisationLag) %>%
 							 unite(home, c(homeTown, homeLat, homeLon), sep = "*", remove = TRUE) %>%
 							 unite(school, c(schoolCode, schoolLat, schoolLon), sep = "*", remove = TRUE) %>%
 							 # add notification place?
@@ -315,17 +316,17 @@ distanceData <- thisData %>% select(ID, homeTown, homeLat, homeLon, hosp1, hosp1
 							 unite(expLoc2, c(exp2Code, exp2Lat, exp2Lon), sep = "*", remove = TRUE) %>%
 							 unite(HCWLoc, c(HCWHospCode, HCWHospLat, HCWHospLon), sep = "*", remove = TRUE) %>%
 							 gather(key = location, value = locLat, locVars) %>%   # gather so that there is one entry for each reference to a hospital
-						     arrange(ID) %>%
+						     arrange(ourID) %>%
 							 separate(locLat, c("place", "lat", "lon"), sep="[*]") %>%
 							 filter(lat != "NA") 
 
 distanceData <- distanceData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # total list of cases by location
-splitDistance <- split(distanceData, as.numeric(distanceData$ID)) # list of locations for each case (including co-ordinates, place, dates and type of location)
-caseIndices <- distanceData %>% select(ID) %>% distinct(ID) 							 
+splitDistance <- split(distanceData, as.numeric(distanceData$ourID)) # list of locations for each case (including co-ordinates, place, dates and type of location)
+caseIndices <- distanceData %>% select(ourID) %>% distinct(ourID) 							 
 
 # List of locations for being infected
 infVars <- c("home", "school", "expLoc1", "expLoc2", "HCWLoc")
-infLocData <- thisData %>% select(ID, homeTown, homeLat, homeLon, schoolCode, schoolLat, schoolLon, exp1Code, exp1Lat, exp1Lon, exp2Code, exp2Lat, exp2Lon, HCWHospCode, HCWHospLat, HCWHospLon, onsetDate, hospitalDate, hospitalisationLag) %>%
+infLocData <- thisData %>% select(ourID, homeTown, homeLat, homeLon, schoolCode, schoolLat, schoolLon, exp1Code, exp1Lat, exp1Lon, exp2Code, exp2Lat, exp2Lon, HCWHospCode, HCWHospLat, HCWHospLon, onsetDate, hospitalDate, hospitalisationLag) %>%
 							 unite(home, c(homeTown, homeLat, homeLon), sep = "*", remove = TRUE) %>%
 							 unite(school, c(schoolCode, schoolLat, schoolLon), sep = "*", remove = TRUE) %>%
 							 # add notification place?
@@ -333,28 +334,29 @@ infLocData <- thisData %>% select(ID, homeTown, homeLat, homeLon, schoolCode, sc
 							 unite(expLoc2, c(exp2Code, exp2Lat, exp2Lon), sep = "*", remove = TRUE) %>%
 							 unite(HCWLoc, c(HCWHospCode, HCWHospLat, HCWHospLon), sep = "*", remove = TRUE) %>%
 							 gather(key = location, value = locLat, infVars) %>%   # gather so that there is one entry for each reference to a hospital
-						     arrange(ID) %>%
+						     arrange(ourID) %>%
 							 separate(locLat, c("place", "lat", "lon"), sep="[*]") %>%
 							 filter(lat != "NA") 
 
 infLocData <- infLocData %>% mutate(lat = as.numeric(lat), lon = as.numeric(lon)) # no. of decimal places
-splitInfDistance <- split(infLocData, as.numeric(infLocData$ID)) # list of locations where each case may have been infected (including co-ordinates, place, dates and type of location)
+splitInfDistance <- split(infLocData, as.numeric(infLocData$ourID)) # list of locations where each case may have been infected (including co-ordinates, place, dates and type of location)
 
 ## Find shortest distance between all locations of infecter and pre-infection locations of infectee
 distIndexCase <- function(indexCase){
+
   # Co-ordinates for thisCase
-  thisCase <- splitDistance[[indexCase]] %>% select(location,lon,lat)
+  thisCase <- splitDistance[[toString(indexCase)]] %>% select(location,lon,lat)
   
   # Reduce to cases for which distance has not yet been calculated
-  otherCases <- as_tibble(caseIndices %>% filter(caseIndices > indexCase))
-  otherCases <- as.character(otherCases$ID)  
+  otherCases <- as_tibble(caseIndices %>% filter(caseIndices > indexCase)) # N.B. when looking at a smaller number of cases for debugging, this yeilds a moving window
+  otherCases <- as.character(otherCases$ourID)  
    
   # Compute distance between this location for thisCase and each location of otherCase
   distanceBetweenCases <- function(otherCase){
 	  coordsOtherCase <- as.matrix(splitInfDistance[[otherCase]] %>% select(lon,lat)) 
-      mat <- distm(thisCase[,c('lon','lat')], coordsOtherCase[,c('lon','lat')], fun=distVincentyEllipsoid)
+      mat <- distm(thisCase[,c('lon','lat')], coordsOtherCase[,c('lon','lat')], fun=distVincentyEllipsoid) / 1000 # distances in km using Vincenty
 	  colnames(mat) <- as.list(splitInfDistance[[otherCase]]$location) # label columns with locations of infectee
-	  rownames(mat) <- as.list(oneLocation$location)
+	  rownames(mat) <- as.list(thisCase$location)
 	  distances <- melt(mat) # distances between each pair of locations
 	  #cat(c("Calculating distance between",indexCase,"and",otherCase, "\n"))
 	  return(suppressMessages({distances %>% top_n(-1) %>% filter(1:n() == 1)})) # return the row of the minimum distance (only the first in the case of a tie)
@@ -363,17 +365,31 @@ distIndexCase <- function(indexCase){
    # Find minimum distance to each other case
    distBetween <- lapply(otherCases, distanceBetweenCases)
    minDistances <- as_tibble(suppressMessages({melt(distBetween)})) %>% select(Var1, Var2, value) # shortest distance between each pair of cases, including location (e.g. home, hospital, school)
-   minDistances <- minDistances %>% mutate(otherCase = otherCases, indexCase = indexCase)
+   minDistances <- minDistances %>% mutate(indexCase = indexCase, otherCase = otherCases)
+   minDistances <- minDistances %>%
+					unite("Combine", c(indexCase, otherCase, Var1, Var2, value))
+					
+  # minDistances <- bind_cols(case1 = rep(indexCase, nrow(minDistances)),case2 = otherCases, dist = minDistances)
    return(minDistances)
    
 }
 
 
 # Matrix of distances between each pair of cases
-#distanceMatrix <- lapply(caseIndices$ID[-length(caseIndices$ID)],distIndexCase)
-distanceMatrix <- lapply(caseIndices$ID[1:4],distIndexCase)
-distanceMatrix <- bind_rows(distanceMatrix)
-distanceMatrix <- distanceMatrix %>% spread(case2,value)
+distanceMatrix <- lapply(caseIndices$ourID[-length(caseIndices$ourID)],distIndexCase)
+
+distanceMatrix <- bind_rows(distanceMatrix)%>% 
+					separate(Combine, c("thisCase", "otherCase", "loc1","loc2","distance"), sep="_") %>% ## where 'loc1' is the location of the transmitter and 'loc2' is the location of the receiver
+					gather(variable, value, -(thisCase:otherCase)) %>%
+					unite(temp, otherCase, variable) %>%
+					spread(temp, value)%>%
+					arrange(thisCase) %>% # workaround to avoid implicit sorting in 'spread'
+					mutate(thisCase = as.factor(thisCase))  %>%
+					mutate_at(vars(matches("distance")), as.double) # since gathering/uniting/spreading has coerced to character. SLOW!!
+		
+dist1 <- distanceMatrix %>% select(thisCase, contains("distance")) # distances only
+loc1 <- distanceMatrix %>% select(thisCase, contains("loc1")) # distances only
+loc2 <- distanceMatrix %>% select(thisCase, contains("loc2")) # distances only
 
 ####################################################
 
@@ -383,6 +399,10 @@ distanceMatrix <- distanceMatrix %>% spread(case2,value)
 ## gravity model           ##
 #############################
 
+## Add population into gravity model here
+
+
+## Add in genotype 
 
 # Likelihood based on date of symptom onset alone
 dates1 <- thisData$onsetDate; names(dates1) <- thisData$ourID
@@ -406,7 +426,7 @@ thisData$RnTime <- colSums(nLike1) # calculation of effective reproduction numbe
 
 # Likelihood based on distance alone (symmetrical, no arrow of time)
 rho <- 2 # Sensitivity analysis. Alter to 0.5, 1 and 5
-like2 <- 1/(distanceMatrix)^rho # power law
+like2 <- 1/(dist1)^rho # power law
 like2[is.infinite(like2)] <- 1  # replace infinite values with 1 (pole)
 # N.B. see Meyer & Held for alternatives to the basic power law which causes such a pole at x=0
 
@@ -424,24 +444,24 @@ nLike3[is.nan(nLike3)] <- 0
 thisData$RnCombined <- colSums(nLike3) # calculation of effective reproduction number
 
 # Secondary infections before / after hospital admission. **Do not use this!**
-preAd <- outer(dates1, thisData$hospitalDate, FUN="-")  # Time lag between date of hospitalisation and symptom onset in secondary case
-preAd <- as.numeric(preAd, units="days")
-dim(preAd) <- c(length(dates1),length(thisData$hospitalDate))
-preAd <- as_tibble(preAd)
-postAd <- preAd
-preAd[preAd <= -11] <- 1 # select for secondary infections before hospital admission (assume 14 days before rash appears. Term this symptom onset)
-preAd[preAd > -11] <- 0 
-preAd <- preAd * nLike3
+#preAd <- outer(dates1, thisData$hospitalDate, FUN="-")  # Time lag between date of hospitalisation and symptom onset in secondary case
+#preAd <- as.numeric(preAd, units="days")
+#dim(preAd) <- c(length(dates1),length(thisData$hospitalDate))
+#preAd <- as_tibble(preAd)
+#postAd <- preAd
+#preAd[preAd <= -11] <- 1 # select for secondary infections before hospital admission (assume 14 days before rash appears. Term this symptom onset)
+#preAd[preAd > -11] <- 0 
+#preAd <- preAd * nLike3
 
-postAd[postAd > -11] <- 1 # select for secondary infections following hospital admission 
-postAd[postAd <= -11] <- 0 
-postAd <- postAd * nLike3
+#postAd[postAd > -11] <- 1 # select for secondary infections following hospital admission 
+#postAd[postAd <= -11] <- 0 
+#postAd <- postAd * nLike3
 
-thisData <- thisData %>% mutate(RnPreAd = colSums(preAd)) # effective reproduction number for cases caused prior to hospital admission
-thisData <- thisData %>% mutate(RnPostAd = colSums(postAd)) # effective reproduction number for cases caused post hospital admission
+#thisData <- thisData %>% mutate(RnPreAd = colSums(preAd)) # effective reproduction number for cases caused prior to hospital admission
+#thisData <- thisData %>% mutate(RnPostAd = colSums(postAd)) # effective reproduction number for cases caused post hospital admission
 
-thisData %>% filter(is.na(hospitalDate) =="FALSE") %>% 
-			select(RnCombined, RnPreAd, RnPostAd)
+#thisData %>% filter(is.na(hospitalDate) =="FALSE") %>% 
+#			select(RnCombined, RnPreAd, RnPostAd)
 
 # Plot effective reproduction number over time
 ggplot( data = thisData, aes(onsetDate, RnCombined)) +
