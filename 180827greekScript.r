@@ -195,7 +195,8 @@ setwd(dir)
 
 
 # Format data for mapping
-thisData <- data0 %>% filter(is.na(homeLat)==FALSE) # exclude cases with missing latitude/longitude
+thisData <- data0 %>% filter(is.na(homeLat)==FALSE) %>% # exclude cases with missing latitude/longitude
+                      arrange(ourID)
 
 ## Code population groups
 thisData <- thisData %>%      
@@ -383,13 +384,19 @@ distanceMatrix <- bind_rows(distanceMatrix)%>%
 					gather(variable, value, -(thisCase:otherCase)) %>%
 					unite(temp, otherCase, variable) %>%
 					spread(temp, value)%>%
-					arrange(thisCase) %>% # workaround to avoid implicit sorting in 'spread'
+					#arrange(thisCase) %>% # workaround to avoid implicit sorting in 'spread'
 					mutate(thisCase = as.factor(thisCase))  %>%
 					mutate_at(vars(matches("distance")), as.double) # since gathering/uniting/spreading has coerced to character. SLOW!!
-		
-dist1 <- distanceMatrix %>% select(thisCase, contains("distance")) # distances only
-loc1 <- distanceMatrix %>% select(thisCase, contains("loc1")) # distances only
-loc2 <- distanceMatrix %>% select(thisCase, contains("loc2")) # distances only
+
+distNames <- paste(sort(thisData$ourID[-1]), "_distance", sep="") # N.B. These are now in order of ourID
+dist1 <- distanceMatrix %>% select(thisCase,distNames) # distances only, re-order columns
+add_row(dist1, thisCase = as.character(max(as.numeric(thisData$ourID)))) # row for highest ID case (all distances calculated by other cases)
+
+loc1Names <- paste(sort(thisData$ourID[-1]), "_loc1", sep="")
+loc1 <- distanceMatrix %>% select(thisCase, loc1Names) # location of transmitter
+
+loc2Names <- paste(sort(thisData$ourID[-1]), "_loc2", sep="")
+loc2 <- distanceMatrix %>% select(thisCase, loc2Names) # location of receiver
 
 ####################################################
 
@@ -421,19 +428,31 @@ minRow <- apply(like1, 1, FUN=min)
 nLike1 <- like1/pmax(minRow,rowSums(like1)) # normalise and adjust for potential zero sum here
 nLike1[is.nan(nLike1)] <- 0
 nLike1[1,] <- 0  # set likelihood of first case being infected by future cases to zero 
-thisData$RnTime <- colSums(nLike1) # calculation of effective reproduction number
+thisData <- thisData %>% mutate(RnTime = colSums(nLike1)) # calculation of effective reproduction number
 
 
 # Likelihood based on distance alone (symmetrical, no arrow of time)
 rho <- 2 # Sensitivity analysis. Alter to 0.5, 1 and 5
-like2 <- 1/(dist1)^rho # power law
+like2 <- 1/(dist1[,-1])^rho # power law 
+like2 <- as_tibble(like2)
+# Re-format to same as distance-based likelihood table
+like2 <- like2 %>% mutate(ourID = as.numeric(levels(dist1$thisCase))) %>%  # re-order by ourID
+				   arrange(ourID)	%>%
+				   #add_row(ourID = as.character(max(as.numeric(thisData$ourID)))) %>%
+				   add_row(ourID = max(as.numeric(thisData$ourID))) %>%
+				   mutate('1_distance' = as.numeric(rep(NA, nrow(thisData)))) %>%
+				   select('1_distance', everything()) %>%
+				   select(-ourID)
+
+like2 <- as.matrix(like2)				   
 like2[is.infinite(like2)] <- 1  # replace infinite values with 1 (pole)
-# N.B. see Meyer & Held for alternatives to the basic power law which causes such a pole at x=0
+like2[lower.tri(like2)] = t(like2)[lower.tri(like2)] # make symmetrical 
+diag(like2) <- 1
 
 minRow2 <- apply(like2, 1, FUN=min)
 nLike2 <- like2/pmax(minRow2,rowSums(like2)) # normalise and adjust for potential zero sum here
-nLike2[is.nan(nLike2)] <- 0
-thisData$RnPlace <- colSums(nLike2) # calculation of effective reproduction number based on distance
+nLike2[is.na(nLike2)] <- 0
+thisData <- thisData %>% mutate(RnPlace = colSums(nLike2)) # calculation of effective reproduction number based on distance
 
 # Combined likelihood based on distance and time
 like3 <- nLike1*nLike2
@@ -441,7 +460,7 @@ minRow3 <- apply(like3, 1, FUN=min)
 nLike3 <- like3/pmax(minRow3,rowSums(like3)) # normalise and adjust for potential zero sum here
 nLike3[is.nan(nLike3)] <- 0
 
-thisData$RnCombined <- colSums(nLike3) # calculation of effective reproduction number
+thisData <- thisData %>% mutate(RnCombined = colSums(nLike3)) # calculation of effective reproduction number
 
 # Secondary infections before / after hospital admission. **Do not use this!**
 #preAd <- outer(dates1, thisData$hospitalDate, FUN="-")  # Time lag between date of hospitalisation and symptom onset in secondary case
