@@ -239,7 +239,11 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
 # Find population of postcode
-thisData <- left_join(thisData, popPostcode, by="postcode")
+#N.B. This is 2015 birth cohort data and is only being used a s a test of principle for coding!!
+popPostcode <- popPostcode %>% mutate(postcode = as.character(postcode)) %>%
+							   rename(popPostcode = total)
+thisData <- left_join(thisData, popPostcode, by="postcode") 
+thisData[is.na(popPostcode)] <- 1 # We do not have 2015 birth cohort population data for all postcodes. Assume the missing ones are very small (1). 
 
 
 #####################
@@ -392,6 +396,14 @@ distNames <- paste(sort(thisData$ourID[-1]), "_distance", sep="") # N.B. These a
 dist1 <- distanceMatrix %>% select(thisCase,distNames) # distances only, re-order columns
 add_row(dist1, thisCase = as.character(max(as.numeric(thisData$ourID)))) # row for highest ID case (all distances calculated by other cases)
 
+dist2 <- dist1 %>% mutate(ourID = as.numeric(levels(dist1$thisCase))) %>%  # re-order by ourID
+				   arrange(ourID)	%>%
+				   add_row(ourID = max(as.numeric(thisData$ourID))) %>%
+				   mutate('1_distance' = as.numeric(rep(NA, nrow(thisData)))) %>%
+				   select('1_distance', everything()) %>%
+				   select(- c(ourID, thisCase))
+
+# N.B. Do we want to re-format these as the distance matrix?
 loc1Names <- paste(sort(thisData$ourID[-1]), "_loc1", sep="")
 loc1 <- distanceMatrix %>% select(thisCase, loc1Names) # location of transmitter
 
@@ -405,9 +417,6 @@ loc2 <- distanceMatrix %>% select(thisCase, loc2Names) # location of receiver
 ## Wallinga-Teunis plus    ##
 ## gravity model           ##
 #############################
-
-## Add population into gravity model here
-
 
 ## Add in genotype 
 
@@ -433,18 +442,15 @@ thisData <- thisData %>% mutate(RnTime = colSums(nLike1)) # calculation of effec
 
 # Likelihood based on distance alone (symmetrical, no arrow of time)
 rho <- 2 # Sensitivity analysis. Alter to 0.5, 1 and 5
-like2 <- 1/(dist1[,-1])^rho # power law 
-like2 <- as_tibble(like2)
-# Re-format to same as distance-based likelihood table
-like2 <- like2 %>% mutate(ourID = as.numeric(levels(dist1$thisCase))) %>%  # re-order by ourID
-				   arrange(ourID)	%>%
-				   #add_row(ourID = as.character(max(as.numeric(thisData$ourID)))) %>%
-				   add_row(ourID = max(as.numeric(thisData$ourID))) %>%
-				   mutate('1_distance' = as.numeric(rep(NA, nrow(thisData)))) %>%
-				   select('1_distance', everything()) %>%
-				   select(-ourID)
+scalePop1 <- 0.5
+scalePop2 <- 0.5
+popValue  <- thisData$popPostcode # Choose which population metric to use here e.g. popPostcode, muncPop
+popMatrix <- (scalePop1 * popValue) %o% (scalePop2 * popValue) # outer product of population of home municipality
 
-like2 <- as.matrix(like2)				   
+# Choose distance function here
+#like2 <- 1/(dist2)^rho # power law 
+like2 <- popMatrix / (dist2)^rho  # gravity model
+
 like2[is.infinite(like2)] <- 1  # replace infinite values with 1 (pole)
 like2[lower.tri(like2)] = t(like2)[lower.tri(like2)] # make symmetrical 
 diag(like2) <- 1
