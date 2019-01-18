@@ -1,4 +1,4 @@
-rm(list=ls())
+#rm(list=ls())
 dir <- "P:/Measles/Greek data/"
 setwd(dir)
 library(plyr)
@@ -55,6 +55,7 @@ write.csv(data0, file = "180509greekData.csv", row.names = FALSE)
 MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = col_character()))  # need to specify residencePostcode as character here because two entries include letters, not just numbers. Otherwise parser would assume it was a column of integers.
 popData <- read_csv("pop2015.csv", col_names=TRUE) 
 muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
+muncPopData$muncCode[c(1:41)] <- sprintf("%04d", muncPopData$muncCode[c(1:41)]) # re-format to match mapMunc
 #latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv co-ordinates and postcodes are included
 
 ##################
@@ -152,7 +153,19 @@ labs2 <- c("0-0.29", paste(seq(lower, upper - 0.1, by = by),
                  sep = sep))
 		   
 MMRcoverage$classCoverage2 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
-		 
+
+							   
+## Define classes for municipality population	
+lower <- 5
+upper <- 15
+sep = "-"
+by <- 1
+ 
+labs3 <- c(seq(5,15))
+		   
+muncPopData$classLogPop <- cut(log(muncPopData$muncPop), breaks = c(0, seq(lower,upper,by=by)), labels = labs3, include.lowest=FALSE, right=FALSE)
+   
+   
 ###################
 ## Plotting maps ##			   
 ###################
@@ -189,8 +202,8 @@ muncDir <- paste(dir,"Shapefiles/Kallikratikoi/", sep="")
 setwd(muncDir)		
 mapMunc <- st_read("Kallikratikoi.shp")
 mapMunc <- st_transform(mapMunc, crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
-#mapMunc %>% select(geometry) %>%
-#				plot()
+mapMunc %>% select(geometry) %>%
+				plot()
 setwd(dir)
 
 
@@ -231,7 +244,7 @@ thisData <- thisData %>% mutate(findRegion = colnames(matrix1)[apply(matrix1,1,w
 
 # Find municipality of data point from lat. and long.
 matrix2 <-  sf::st_intersects(mapHome, mapMunc, sparse = FALSE) # matrix showing which municipality point belongs to.
-colnames(matrix2) <- muncPopData$muncName # assign names of NUTS-3 regions
+colnames(matrix2) <- muncPopData$muncName # assign names of municipalities
 rownames(matrix2) <- mapHome$ourID
 thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,which.max)]) # Find name of municipality corresponding to Lat. and Long.
 
@@ -243,7 +256,7 @@ thisData <- left_join(thisData, muncPopData, by="muncName")
 popPostcode <- popPostcode %>% mutate(postcode = as.character(postcode)) %>%
 							   rename(popPostcode = total)
 thisData <- left_join(thisData, popPostcode, by="postcode") 
-thisData[is.na(popPostcode)] <- 1 # We do not have 2015 birth cohort population data for all postcodes. Assume the missing ones are very small (1). 
+thisData <-  thisData %>% replace_na(list(popPostcode = 1)) # We do not have 2015 birth cohort population data for all postcodes. Assume the missing ones are very small (1). 
 
 
 #####################
@@ -302,6 +315,27 @@ plot_anim <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.
 #tmap_animation(plot_anim, filename = "plot_anim.gif", delay = 25)
 
 
+# Plot population by municipality		
+#muncPopData <- muncPopData %>% mutate(KALCODE = as.factor(muncCode))  
+mapMuncPop <- left_join(mapMunc, muncPopData, by="KALCODE")# %>%   # combine geographic data with population
+			 #  filter(geo != "NA")
+
+map4 <- qtm(mapMunc) +# tm_fill("lightgrey") + 
+tm_shape(mapMuncPop, is.master = TRUE) +
+	#scale_x_continuous(limits = c(23.5, 24), expand = c(0, 0)) + # Athens
+   # scale_y_continuous(limits = c(37.9, 38), expand = c(0, 0)) +  # Athens
+	tm_polygons(col = "classLogPop", title = "Population", palette = "Greens") +#, border.col = "white") #+
+	tm_shape(mapHome %>% filter(popGroup == 4)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkred", shape=20, size=0.1) +
+	tm_shape(mapHome %>% filter(popGroup == 1)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkblue", shape=20, size=0.1) +
+	tm_shape(mapHome %>% filter(popGroup == 3)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="lightblue", shape=20, size=0.1) +
+	tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
+	tm_dots(col="darkorange", shape=20, size=0.1) 
+	
+print(map4) 
+	
 ###########################
 ## Calculate shortest    ##
 ## distance between each ##
@@ -444,12 +478,12 @@ thisData <- thisData %>% mutate(RnTime = colSums(nLike1)) # calculation of effec
 rho <- 2 # Sensitivity analysis. Alter to 0.5, 1 and 5
 scalePop1 <- 0.5
 scalePop2 <- 0.5
-popValue  <- thisData$popPostcode # Choose which population metric to use here e.g. popPostcode, muncPop
+popValue  <- thisData$muncPop # Choose which population metric to use here e.g. popPostcode, muncPop
 popMatrix <- (scalePop1 * popValue) %o% (scalePop2 * popValue) # outer product of population of home municipality
 
 # Choose distance function here
 #like2 <- 1/(dist2)^rho # power law 
-like2 <- popMatrix / (dist2)^rho  # gravity model
+like2 <- popMatrix / 1#(dist2)^rho  # gravity model
 
 like2[is.infinite(like2)] <- 1  # replace infinite values with 1 (pole)
 like2[lower.tri(like2)] = t(like2)[lower.tri(like2)] # make symmetrical 
@@ -502,15 +536,25 @@ ggplot( data = thisData, aes(onsetDate, RnCombined)) +
 					  axis.line = element_line(colour = "black"),
 					  text = element_text(size=18)) 
 
+thisData$popGroup <- as.factor(thisData$popGroup)
+					  
 # Plot histogram of Rn 
-ggplot(data = thisData, aes(x=RnCombined)) +
-  geom_histogram(binwidth = 0.1, fill=ECDCcol[1]) +
+ggplot(data = thisData, aes(x=RnCombined, fill=popGroup)) +
+  geom_histogram(binwidth = 10, fill=ECDCcol[1]) +
   labs(	x = "Effective reproduction number", y = "Count") +
-  theme(legend.position="none",  text = element_text(size=18))
+  theme(legend.position="right",  text = element_text(size=18)) +
+ #coord_cartesian(xlim = c(0,20000), ylim = NULL, expand = FALSE)
 
 median(thisData$RnCombined)
 var(thisData$RnCombined)	
 
+			  
+# Plot density of area of population by population group
+ggplot(data = thisData, aes(x=popPostcode, fill=popGroup)) +
+  geom_density(alpha=0.4) + 
+  labs(	x = "Population of municipality", y = "Density") +
+  theme(legend.position="right",  text = element_text(size=18))
+  
 
 ##################
 ## Matrix plots ##
@@ -548,7 +592,7 @@ popMatrix <- rbind(c(0,thisData$popGroup), popMatrix)
 
 
 # Sum the number of inferred cases in each row for each population group
-nPopGroups <- length(unique(thisData$popGroup))   # No. of age groups. Check: will this work if one group is missing?
+nPopGroups <- length(unique(thisData$popGroup))   # No. of population groups. Check: will this work if one group is missing?
 a <- rep(-1, (nPopGroups*nrow(nLike3)))
 dim(a) <- c(nrow(nLike3),nPopGroups)
 
@@ -569,10 +613,10 @@ WAIFWPop[,j] <- d[c(1:nPopGroups),2]
 
 WAIFWPop[is.na(WAIFWPop)] <- 0
 
-groupPopCases <- rowSums(WAIFWPop)  # total no. of cases in each age group
-groupPopCauses <- colSums(WAIFWPop)  # total no. of cases caused by each age group
+groupPopCases <- rowSums(WAIFWPop)  # total no. of cases in each population group
+groupPopCauses <- colSums(WAIFWPop)  # total no. of cases caused by each population group
 
-## Plot WAIFW matrix by age
+## Plot WAIFW matrix by population group
 melted_WAIFWPop <- melt(WAIFWPop)
 melted_WAIFWPop <- as.data.frame(melted_WAIFWPop)
 
@@ -677,8 +721,8 @@ thisData <- thisData %>% mutate(isMigrant = factor(isMigrant, levels=c(0,1))) # 
 thisData <- thisData %>% mutate(lagGroup = factor(lagGroup, levels=c(1,2,3,4,5,6))) # assign factors
 
 # *Repeat for each group*
-thisData %>% filter(isHospitalised == "N") %>%
-			 group_by(popGroup) %>%
+thisData %>% filter(isRoma == "Y") %>%
+			 group_by(popGroup) %>% # This doesn't make sense when filtering by isRoma
 			 #group_by(lagGroup) %>%
 		     summarise(meanRn = mean(RnCombined), medianRn = median(RnCombined), sdRn = sd(RnCombined))
 
@@ -974,16 +1018,24 @@ hospData %>% group_by(code)
             
 hospitals <- hospData %>% group_by(code) %>%
 						  summarise(nCases = n())
-						  
   
 ## Histogram of cases per hospital
 ggplot(data = hospitals, aes(x=nCases)) +
   geom_bar() +
   labs(	x = "", y = "Count") +
+  theme(legend.position="none")# 
   
-  theme(legend.position="none")# +
-  
-  
+## Subset of hospitals with some record of 'hospital exposure'
+theseHospitals <- hospData %>% filter(hospitalExposure == 1, !duplicated(code)) %>% select(code)
+
+## Plot time series of hospital outbreak by population group
+thisHosp <- hospData %>% filter(code == "ATH-EUROKL", !duplicated(ourID))  %>% select(ourID, onsetDate, isRoma, isHCW, popGroup, exp1Name, HCWHospName) %>% print(n=60)						  
+thisHosp$popGroup <- factor(thisHosp$popGroup) 
+#thisHosp$onsetDate <- factor(thisHosp$onsetDate)
+ 
+ggplot(data = thisHosp, aes(x=onsetDate, fill=popGroup) ) +
+ geom_bar(width= 0.99) +
+  labs(	x = "Date of symptom onset", y = "Count") 
   
   
 #####################
