@@ -1,8 +1,8 @@
-#rm(list=ls())
+rm(list=ls())
 dir <- "P:/Measles/Greek data/"
 setwd(dir)
 library(plyr)
-library(ggmap) #for LatLong API
+library(ggmap) #for LatLong API (Google Maps)
 library(devtools)
 #install_github("ropengov/eurostat")
 library(eurostat)
@@ -156,14 +156,10 @@ MMRcoverage$classCoverage2 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq
 
 							   
 ## Define classes for municipality population	
-lower <- 5
-upper <- 15
-sep = "-"
-by <- 1
- 
-labs3 <- c(seq(5,15))
+breaks3 <- c(100, 1000, 10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000, 1000000)
+labs3 <- c("100-999", "1000-9999", "10000-19999", "20000-29999", "30000-39999", "40000-49999", "50000-59999", "60000-69999", "70000-79999", "80000-89999", "90000-99999", "100000-1000000")
 		   
-muncPopData$classLogPop <- cut(log(muncPopData$muncPop), breaks = c(0, seq(lower,upper,by=by)), labels = labs3, include.lowest=FALSE, right=FALSE)
+muncPopData$classPop <- cut(muncPopData$muncPop, breaks = breaks3, labels = labs3, include.lowest=FALSE, right=FALSE)
    
    
 ###################
@@ -298,10 +294,8 @@ tm_shape(mapHome %>% filter(popGroup == 1 & placeOfResidence %in% athensCodes)) 
 tm_shape(mapHome %>% filter(popGroup == 3 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="lightblue", shape=20, size=0.1) +
 tm_shape(mapHome %>% filter(popGroup == 2 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkorange", shape=20, size=0.1) 
-
-# tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
- 
+	tm_dots(col="darkorange", shape=20, size=0.1)
+	
 print(map3)	
 	
 
@@ -316,15 +310,14 @@ plot_anim <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.
 
 
 # Plot population by municipality		
-#muncPopData <- muncPopData %>% mutate(KALCODE = as.factor(muncCode))  
+muncPopData <- muncPopData %>% mutate(KALCODE = as.factor(muncCode))  
 mapMuncPop <- left_join(mapMunc, muncPopData, by="KALCODE")# %>%   # combine geographic data with population
 			 #  filter(geo != "NA")
 
-map4 <- qtm(mapMunc) +# tm_fill("lightgrey") + 
+map4 <- qtm(mapMunc) + #tm_fill("lightgrey") + 
+
 tm_shape(mapMuncPop, is.master = TRUE) +
-	#scale_x_continuous(limits = c(23.5, 24), expand = c(0, 0)) + # Athens
-   # scale_y_continuous(limits = c(37.9, 38), expand = c(0, 0)) +  # Athens
-	tm_polygons(col = "classLogPop", title = "Population", palette = "Greens") +#, border.col = "white") #+
+	tm_polygons(col = "classPop", title = "Population", palette = "Greens") +#, border.col = "white") #+
 	tm_shape(mapHome %>% filter(popGroup == 4)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="darkred", shape=20, size=0.1) +
 	tm_shape(mapHome %>% filter(popGroup == 1)) +#filter(age <= 3 & popGroup == 4)) +
@@ -333,9 +326,10 @@ tm_shape(mapMuncPop, is.master = TRUE) +
 	tm_dots(col="lightblue", shape=20, size=0.1) +
 	tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="darkorange", shape=20, size=0.1) 
-	
+
 print(map4) 
 	
+
 ###########################
 ## Calculate shortest    ##
 ## distance between each ##
@@ -542,16 +536,16 @@ thisData$popGroup <- as.factor(thisData$popGroup)
 ggplot(data = thisData, aes(x=RnCombined, fill=popGroup)) +
   geom_histogram(binwidth = 10, fill=ECDCcol[1]) +
   labs(	x = "Effective reproduction number", y = "Count") +
-  theme(legend.position="right",  text = element_text(size=18)) +
+  theme(legend.position="right",  text = element_text(size=18))# +
  #coord_cartesian(xlim = c(0,20000), ylim = NULL, expand = FALSE)
 
 median(thisData$RnCombined)
 var(thisData$RnCombined)	
 
-			  
-# Plot density of area of population by population group
-ggplot(data = thisData, aes(x=popPostcode, fill=popGroup)) +
-  geom_density(alpha=0.4) + 
+	
+# Plot population of municipality by population group
+ggplot(data = thisData, aes(x=muncPop, fill=popGroup)) +
+geom_density(alpha=0.4) + 
   labs(	x = "Population of municipality", y = "Density") +
   theme(legend.position="right",  text = element_text(size=18))
   
@@ -969,6 +963,8 @@ a <- as_tibble(geocode(distinctPlace, output = "all", source="google")) %>%   # 
 			   mutate(postal_code = as.character(postal_code))
 distinctPlace2 <- bind_cols(distinctPlace,a)
 
+
+#### OLD ####
 # Manual check for missing values (iterate since often due to Google API query limit)
 distinctPlace1 <- distinctPlace2 %>% filter(is.na(distinctPlace2$lat))
 b <- as_tibble(geocode(distinctPlace1$homeTown, output = "more") %>% 
