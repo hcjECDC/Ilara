@@ -84,7 +84,7 @@ for(i in (ncol(data3)+1):(ncol(data2))){   # NB. Start counting after constant c
 
 #write.csv(data3, file = "180815MMRoutput.csv", row.names = FALSE)	
 
-## Number of doses by NUTS-3 
+# Number of doses by NUTS-3 
 oneDose <- data3 %>% filter(resNUTS3 != "#N/A" & doses==1) %>%
 					arrange(resNUTS3) %>%
 					group_by(resNUTS3) %>%
@@ -96,7 +96,21 @@ twoPlusDoses <- data3 %>% filter(resNUTS3 != "#N/A" & doses>1) %>%
 						  group_by(resNUTS3) %>%
 					      summarise(Total = n())%>%
 						  rename(NUTS3Code = resNUTS3) 
-
+						  
+# Number of doses by postcode
+oneDosePC <- data3 %>% filter(resPostcode != "#N/A" & doses==1) %>%
+					arrange(resPostcode) %>%
+					group_by(resPostcode) %>%
+					summarise(Total = n()) %>%
+					rename(postcode = resPostcode) 
+					
+twoPlusDosesPC <- data3 %>% filter(resPostcode != "#N/A" & doses>1) %>%
+						  arrange(resPostcode) %>%
+						  group_by(resPostcode) %>%
+					      summarise(Total = n())%>%
+						  rename(postcode = resPostcode) 
+						  
+# Population by postcode
 popPostcode <- popData %>% filter(is.na(postcode)==FALSE) %>%
 							arrange(postcode) %>%
 							group_by(postcode) %>%
@@ -107,7 +121,8 @@ write.csv(popPostcode, file = "popPostcode.csv", row.names = FALSE)
 pop2015 <- popData %>% arrange(NUTS3Code) %>%
 					   group_by(NUTS3Code) %>%
 					   summarise(Total = sum(popCohort15))
-					   
+
+# MMR coverage at NUTS-3 level					   
 MMRcoverage <- full_join(pop2015, oneDose, by="NUTS3Code")
 MMRcoverage <- full_join(MMRcoverage, twoPlusDoses, by="NUTS3Code") %>%
 			   rename(population = Total.x) %>%
@@ -115,8 +130,35 @@ MMRcoverage <- full_join(MMRcoverage, twoPlusDoses, by="NUTS3Code") %>%
 			   rename(twoPlusDoses = Total) %>%
 			   mutate(coverage1 = oneDose/population) %>%
 			   mutate(coverage2plus = twoPlusDoses/population) %>%
-			   mutate(overallCoverage = coverage1 + coverage2plus) 
-			   
+			   mutate(overallCoverage = coverage1 + coverage2plus)
+
+# MMR coverage at postcode resolution
+MMRpopCoverage <- full_join(popPostcode, oneDosePC, by="postcode")
+MMRpopCoverage <- full_join(MMRpopCoverage, twoPlusDosesPC, by="postcode") %>%
+					rename(population = popPostcode) %>%
+					rename(oneDose = Total.x) %>%
+					rename(twoPlusDoses = Total.y) %>%
+					mutate(coverage1 = oneDose/population) %>%
+					mutate(coverage2plus = twoPlusDoses/population) %>%  
+					rowwise() %>% 
+					mutate(overallCoverage = sum(coverage1,coverage2plus, na.rm=TRUE)) %>%
+					mutate(overallCoverage = min(overallCoverage,1)) %>% # discrepancy with population denominator means a couple of postcodes have coverage > 1. Recode.
+					mutate(unvaccinated = population * (1-overallCoverage))
+
+infantCasesPC <- thisData %>% filter(age==2) %>%
+							  group_by(popGroup, postcode) %>% 
+							  summarise(nCases = n()) %>%
+							  select(postcode, popGroup, nCases)
+							  
+MMRpopCoverage <- full_join(MMRpopCoverage, infantCasesPC, by="postcode") %>%
+					mutate(incidence = nCases / unvaccinated) %>%
+					filter(incidence < 5)
+					
+# Plot incidence rate among unvaccinated. Caution! Could be mismatch with population denominator due to migration or age cohort effects (2015 birth vs. 2 years old)
+ggplot(MMRpopCoverage, aes(incidence, fill=factor(popGroup))) +
++     geom_histogram(bins=50)
+
+					
 ## 2010 NUTS-3 code (Attiki) was subdivided into 7 codes in 2013 but we need to update population data. Average for now.
 athensCodes <- c(paste("EL30", seq(1,7), sep=""))			   
 expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
@@ -298,9 +340,9 @@ tm_shape(mapHome %>% filter(popGroup == 2 & placeOfResidence %in% athensCodes)) 
 	
 print(map3)	
 	
-
-plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05) +
-							  tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4)) + tm_dots(col="darkblue", size=0.05) 
+plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age == 2)) + tm_dots(col="darkred", size=0.05) #+
+							 # tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05) +
+							 # tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4)) + tm_dots(col="darkblue", size=0.05) 
 							 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
 print(plotCases)
 
@@ -1025,7 +1067,7 @@ ggplot(data = hospitals, aes(x=nCases)) +
 theseHospitals <- hospData %>% filter(hospitalExposure == 1, !duplicated(code)) %>% select(code)
 
 ## Plot time series of hospital outbreak by population group
-thisHosp <- hospData %>% filter(code == "ATH-EUROKL", !duplicated(ourID))  %>% select(ourID, onsetDate, isRoma, isHCW, popGroup, exp1Name, HCWHospName) %>% print(n=60)						  
+thisHosp <- hospData %>% filter(code == "LARI-PNOS", !duplicated(ourID))  %>% select(ourID, onsetDate, isRoma, isHCW, popGroup, exp1Name, HCWHospName)# %>% print(n=60)						  
 thisHosp$popGroup <- factor(thisHosp$popGroup) 
 #thisHosp$onsetDate <- factor(thisHosp$onsetDate)
  
