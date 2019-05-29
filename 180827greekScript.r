@@ -1,4 +1,4 @@
-rm(list=ls())
+#rm(list=ls())
 dir <- "P:/Measles/Greek data/"
 setwd(dir)
 library(plyr)
@@ -1064,18 +1064,31 @@ ggplot(data = hospitals, aes(x=nCases)) +
   theme(legend.position="none")# 
   
 ## Subset of hospitals with some record of 'hospital exposure'
-theseHospitals <- hospData %>% filter(hospitalExposure == 1, !duplicated(code)) %>% select(code)
+theseHospitals <- hospData %>% filter(isHCW==1, !duplicated(code)) %>% select(code)
+							   #filter(hospitalExposure == 1 | !is.na(exp1Name) | isHCW==1, !duplicated(code)) %>% select(code)
 
 ## Plot time series of hospital outbreak by population group
-thisHosp <- hospData %>% filter(code == "LARI-PNOS", !duplicated(ourID))  %>% select(ourID, onsetDate, isRoma, isHCW, popGroup, exp1Name, HCWHospName)# %>% print(n=60)						  
-thisHosp$popGroup <- factor(thisHosp$popGroup) 
-#thisHosp$onsetDate <- factor(thisHosp$onsetDate)
- 
-ggplot(data = thisHosp, aes(x=onsetDate, fill=popGroup) ) +
+#thisHosp <- hospData %>% filter(code == "LARI-PNOS", !duplicated(ourID))  %>% select(ourID, onsetDate, isRoma, isHCW, popGroup, exp1Name, HCWHospName, RnTime, RnPlace, RnCombined)# %>% print(n=60)						  
+theseHosps <- semi_join(hospData, theseHospitals) %>%
+		      select(ourID, code, onsetDate, isRoma, isHCW, popGroup, hospitalExposure, exp1Name, HCWHospName, RnTime, RnPlace, RnCombined)# %>% print(n=60)	
+						 
+theseHosps$popGroup <- factor(theseHosps$popGroup) 
+
+ggplot(data = theseHosps, aes(x=onsetDate, fill=popGroup) ) +
  geom_bar(width= 0.99) +
   labs(	x = "Date of symptom onset", y = "Count") 
-  
-  
+
+# Bubble plot to show population group and number of attributable infections
+ggplot(data = theseHosps, aes(x = onsetDate, y = code)) + 
+  geom_point(aes(fill = popGroup, size = RnCombined), colour="black", pch=22, alpha = 0.7) +
+  scale_size(range = c(0.25, 5))  # Adjust the range of points size
+
+# Bubble plot to show population group and number of attributable infections
+ggplot(data = theseHosps, aes(x = onsetDate, y = code)) + 
+  geom_point(aes(fill = popGroup, size = RnCombined, colour = (hospitalExposure==1 | !is.na(exp1Name))), pch=21, alpha = 0.8) +
+  scale_colour_manual(name = 'Hospital exposure proposed', values = setNames(c('black','white'),c(T, F))) +
+  scale_size(range = c(1, 10))  # Adjust the range of points size
+    
 #####################
 ## Useful snippets ##
 #####################
