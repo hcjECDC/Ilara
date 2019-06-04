@@ -160,7 +160,9 @@ ggplot(MMRpopCoverage, aes(incidence, fill=factor(popGroup))) +
 
 					
 ## 2010 NUTS-3 code (Attiki) was subdivided into 7 codes in 2013 but we need to update population data. Average for now.
-athensCodes <- c(paste("EL30", seq(1,7), sep=""))			   
+athensCodes <- c(paste("EL30", seq(1,7), sep=""))	
+athensCodes1 <- athensCodes[c(1:6)] # omit Piraeus
+		   
 expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
 								slice(rep(1, each=7)) %>%	          # copy Attiki entry 7 times
 								mutate(NUTS3Code = athensCodes) %>%	  #	assign list of 7 Attiki codes 
@@ -255,8 +257,15 @@ thisData <- thisData %>%
 							  isMigrant==1 ~ 2,		## Migrant
 							  isHCW==1     ~ 3,		## Healthcare worker
 							  TRUE         ~ 4))	## General population
+popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
 
 data1 <- thisData %>% group_by(week=ceiling_date(onsetDate, "week")) # group by week for plotting (this is 'week ending...')
+#data1$popGroup <- as.factor(data1$popGroup)
+
+data1$popGroup <- factor(data1$popGroup,
+					levels = c(1:length(popLabs)),
+					labels = popLabs)
+
 hospData <- data0 %>% filter(is.na(hosp1Lat)==FALSE) # exclude cases with missing latitude/longitude
 mapHome <- st_as_sf(data1, coords = c('homeLon', 'homeLat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 mapHosp <- st_as_sf(hospData, coords = c('hosp1Lon', 'hosp1Lat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
@@ -296,39 +305,68 @@ popPostcode <- popPostcode %>% mutate(postcode = as.character(postcode)) %>%
 thisData <- left_join(thisData, popPostcode, by="postcode") 
 thisData <-  thisData %>% replace_na(list(popPostcode = 1)) # We do not have 2015 birth cohort population data for all postcodes. Assume the missing ones are very small (1). 
 
+################
+## Plot cases ##
+################
 
+## Greece cases
+map2 <- qtm(mapGreece) +  		
+			tm_shape(mapHome) +
+				tm_symbols(col="popGroup", size=0.15, palette=ECDCcol, shape=20, title.col = c("Population group")) + 
+			tm_layout(legend.position = c("right", "centre"), 
+						legend.title.size = 1.2,
+						legend.text.size = 0.75,
+						attr.outside = TRUE,
+						main.title = "Distribution of measles cases by population group", 
+						main.title.size = 1) 
+
+print(map2) 
+	
+## Weekly static
+plot_anim <- qtm(mapGreece) + 		
+				tm_shape(mapHome) +
+					tm_dots(col="popGroup", size=0.05) +
+				tm_facets(by = "week", free.coords = FALSE, nrow=6, ncol = 10)  # plot cases by week
+				#tm_facets(along = "week")  # plot cases by week
+
+## Weekly animation				
+# Require ImageMagick for animation
+#tmap_animation(plot_anim, filename = "plot_anim.gif", delay = 25)
+
+
+## Athens cases
+map2A <- qtm(mapAthens) +  		
+			tm_shape(mapHome %>% filter(placeOfResidence %in% athensCodes)) +
+				tm_symbols(col="popGroup", size=0.14, palette=ECDCcol, shape=20, title.col = c("Population group")) + 
+			tm_layout(legend.show = FALSE,	
+					  title = "Athens",
+					  title.position = c("right", "bottom"))
+
+print(map2A) 
+	
 #####################
 ## Plot MMR uptake ##
 #####################
-
 # Plot MMR uptake with cases
-map2 <- qtm(mapGreece) +# tm_fill("lightgrey") + 
-tm_shape(mapCoverage, is.master = TRUE) +
-	tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
-#tm_text("geo", just = "center") +
-#tm_scale_bar()# +
-tm_shape(mapHome %>% filter(popGroup == 4)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkred", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 1)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkblue", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 3)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="lightblue", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkorange", shape=20, size=0.1) +
-tm_format_Europe(legend.position = c("right", "top"), attr.outside = TRUE,
-				 main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1)# +
-# tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
- 
-print(map2) 
+map3 <- qtm(mapGreece) +  		
+			tm_shape(mapCoverage, is.master = TRUE) +
+				tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white", alpha=0.8) +
+			tm_shape(mapHome %>% filter(age <= 3)) + 
+				tm_dots(col="black", shape=20, size=0.15) +
+			tm_layout(legend.position = c("right", "centre"), 
+						legend.title.size = 1.2,
+						legend.text.size = 0.75,
+						attr.outside = TRUE,
+						main.title = "MMR uptake and incident cases in children aged 3 and under", 
+						main.title.size = 1.2) 
+
+print(map3) 
 	
 # Plot MMR uptake with cases
-map3 <- qtm(mapAthens) +# tm_fill("lightgrey") + 
-tm_shape(mapCoverageAthens, is.master = TRUE) +
-tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
-#tm_text("geo", just = "center") +
-#tm_scale_bar()# +
-#tm_format_Europe(legend.position = "none", attr.outside = TRUE,
-				# main.title = "Uptake of at least 1 dose of MMR vaccine (2015 birth cohort)", main.title.size = 1) +
+map3A <- qtm(mapAthens) +
+			tm_shape(mapCoverageAthens, is.master = TRUE) +
+				tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
+
 tm_shape(mapHome %>% filter(popGroup == 4 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="darkred", shape=20, size=0.1) +
 tm_shape(mapHome %>% filter(popGroup == 1 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
@@ -338,7 +376,7 @@ tm_shape(mapHome %>% filter(popGroup == 3 & placeOfResidence %in% athensCodes)) 
 tm_shape(mapHome %>% filter(popGroup == 2 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="darkorange", shape=20, size=0.1)
 	
-print(map3)	
+print(map3A)	
 	
 plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age == 2)) + tm_dots(col="darkred", size=0.05) #+
 							 # tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05) +
@@ -346,17 +384,13 @@ plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age == 2)) + tm_dots(c
 							 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
 print(plotCases)
 
-plot_anim <- qtm(mapGreece) + tm_shape(mapHome) + tm_dots(col="darkred", size=0.05) + tm_facets(by = "week", free.coords = FALSE, nrow = 6, ncol = 10) # plot cases by week
-# Require ImageMagick for animation
-#tmap_animation(plot_anim, filename = "plot_anim.gif", delay = 25)
-
 
 # Plot population by municipality		
 muncPopData <- muncPopData %>% mutate(KALCODE = as.factor(muncCode))  
 mapMuncPop <- left_join(mapMunc, muncPopData, by="KALCODE")# %>%   # combine geographic data with population
 			 #  filter(geo != "NA")
 
-map4 <- qtm(mapMunc) + #tm_fill("lightgrey") + 
+map5 <- qtm(mapMunc) + #tm_fill("lightgrey") + 
 
 tm_shape(mapMuncPop, is.master = TRUE) +
 	tm_polygons(col = "classPop", title = "Population", palette = "Greens") +#, border.col = "white") #+
@@ -369,7 +403,7 @@ tm_shape(mapMuncPop, is.master = TRUE) +
 	tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
 	tm_dots(col="darkorange", shape=20, size=0.1) 
 
-print(map4) 
+print(map5) 
 	
 
 ###########################
@@ -511,6 +545,7 @@ thisData <- thisData %>% mutate(RnTime = colSums(nLike1)) # calculation of effec
 
 
 # Likelihood based on distance alone (symmetrical, no arrow of time)
+beta1 <- 0.5 #scaling factor for distance decay 
 rho <- 2 # Sensitivity analysis. Alter to 0.5, 1 and 5
 scalePop1 <- 0.5
 scalePop2 <- 0.5
@@ -519,7 +554,8 @@ popMatrix <- (scalePop1 * popValue) %o% (scalePop2 * popValue) # outer product o
 
 # Choose distance function here
 #like2 <- 1/(dist2)^rho # power law 
-like2 <- popMatrix / 1#(dist2)^rho  # gravity model
+#like2 <- popMatrix / 1#(dist2)^rho  # gravity model
+like2 <- popMatrix * exp(-beta1 * dist2)  # gravity model
 
 like2[is.infinite(like2)] <- 1  # replace infinite values with 1 (pole)
 like2[lower.tri(like2)] = t(like2)[lower.tri(like2)] # make symmetrical 
@@ -531,7 +567,7 @@ nLike2[is.na(nLike2)] <- 0
 thisData <- thisData %>% mutate(RnPlace = colSums(nLike2)) # calculation of effective reproduction number based on distance
 
 # Combined likelihood based on distance and time
-like3 <- nLike1*nLike2
+like3 <- like1*like2
 minRow3 <- apply(like3, 1, FUN=min)
 nLike3 <- like3/pmax(minRow3,rowSums(like3)) # normalise and adjust for potential zero sum here
 nLike3[is.nan(nLike3)] <- 0
@@ -558,9 +594,10 @@ thisData <- thisData %>% mutate(RnCombined = colSums(nLike3)) # calculation of e
 #thisData %>% filter(is.na(hospitalDate) =="FALSE") %>% 
 #			select(RnCombined, RnPreAd, RnPostAd)
 
+thisData$popGroup <- as.factor(thisData$popGroup)
 # Plot effective reproduction number over time
-ggplot( data = thisData, aes(onsetDate, RnCombined)) +
-				geom_point(col=ECDCcol[1]) +
+ggplot(data = thisData, aes(x = onsetDate, y = RnCombined)) +
+				geom_point(aes(fill = popGroup), pch=21, alpha = 0.8) +
 				#geom_smooth(span=0.15) +
 				geom_hline(yintercept = 1, lty = 2, lwd=1.2) +
 				labs(
@@ -570,20 +607,31 @@ ggplot( data = thisData, aes(onsetDate, RnCombined)) +
 					  panel.grid.minor = element_blank(), 
 					  panel.background = element_blank(),
 					  axis.line = element_line(colour = "black"),
-					  text = element_text(size=18)) 
-
-thisData$popGroup <- as.factor(thisData$popGroup)
-					  
+					  text = element_text(size=14)) 
+				  
 # Plot histogram of Rn 
-ggplot(data = thisData, aes(x=RnCombined, fill=popGroup)) +
-  geom_histogram(binwidth = 10, fill=ECDCcol[1]) +
+ggplot(data = thisData, aes(x=RnCombined)) +
+  geom_histogram(aes(fill=popGroup), alpha = 0.8, bins=50) +
   labs(	x = "Effective reproduction number", y = "Count") +
-  theme(legend.position="right",  text = element_text(size=18))# +
- #coord_cartesian(xlim = c(0,20000), ylim = NULL, expand = FALSE)
+  theme(legend.position="right",  text = element_text(size=14))
 
 median(thisData$RnCombined)
 var(thisData$RnCombined)	
 
+# Bubble plot to show population group and number of attributable infections
+# Figure S1
+ggplot(data = thisData, aes(x = onsetDate, y = popGroup)) + 
+  geom_point(aes(fill = popGroup, size = RnCombined), pch=21, alpha = 0.4) +
+  scale_size_continuous(range = c(0.5, 10)) +  # Adjust the range of points size 
+  #scale_y_discrete("Population group", labels = c(1 = "Roma", 2 = "Migrant", 3 = "Healthcare worker", 4 = "General population"))
+  labs(x = "Date of onset of symptoms",
+	   y = "Population group",
+	   size = "Effective reproduction number") +
+  theme(panel.grid.major = element_blank(), 
+		panel.grid.minor = element_blank(), 
+		panel.background = element_blank(),
+		axis.line = element_line(colour = "black"),
+		text = element_text(size=14)) 
 	
 # Plot population of municipality by population group
 ggplot(data = thisData, aes(x=muncPop, fill=popGroup)) +
@@ -613,10 +661,9 @@ labs <- c("0-1", "2-4", paste(seq(5, upper - by, by = by),
 		   
 thisData$ageGroup <- cut(thisData$age1, breaks = c(0,2,seq(5,upper,by=5),70,80,Inf), labels = labs, include.lowest=FALSE, right=FALSE)
 
-	
 ## Code population groups (This is now done before map plotting, still included here in case bugs crop up later...)
 #thisData <- thisData %>%      
-#  mutate(popGroup = case_when(isRoma==1    ~ 1,    	## Roma
+#  mutate(popGroup = case_when(isRoma==1    ~ 1,    ## Roma
 #							  isMigrant==1 ~ 2,		## Migrant
 #							  isHCW==1     ~ 3,		## Healthcare worker
 #							  TRUE         ~ 4))	## General population
@@ -626,25 +673,24 @@ popMatrix <- data.matrix(nLike3)
 popMatrix <- cbind(thisData$popGroup, nLike3) # Define matrix with population group in first row and column and likelihood of i being infected by j in body
 popMatrix <- rbind(c(0,thisData$popGroup), popMatrix) 
 
-
 # Sum the number of inferred cases in each row for each population group
 nPopGroups <- length(unique(thisData$popGroup))   # No. of population groups. Check: will this work if one group is missing?
 a <- rep(-1, (nPopGroups*nrow(nLike3)))
 dim(a) <- c(nrow(nLike3),nPopGroups)
 
 for (i in 1:nPopGroups){
-a[,i] <- rowSums(popMatrix[-1,which(popMatrix[,1]==i)]) # Group population groups of 'causes'
+a[,i] <- rowSums(popMatrix[-1,which(popMatrix[,1]==i)]) # Group population groups of 'causes' i.e. this is the sum of all cases in each group caused by the person on this row.
 }
 
 
-WAIFWPop <- rep(-1, nPopGroups^2)   ## Normalise
+WAIFWPop <- rep(-1, nPopGroups^2)  
 dim(WAIFWPop) <- c(nPopGroups,nPopGroups)
 
-b <- cbind(thisData$popGroup,a)
+b <- cbind(thisData$popGroup,a) # re-bind with the population group of the case on each row
 
 for(j in 1:nPopGroups){
-d <- aggregate(b[,(j+1)], by=list(Category=b[,1]), FUN=sum)
-WAIFWPop[,j] <- d[c(1:nPopGroups),2]
+d <- aggregate(b[,(j+1)], by=list(Category=b[,1]), FUN=sum) # sum all the cases which are caused by each population group in turn
+WAIFWPop[,j] <- d[c(1:nPopGroups),2] # Cases are caused by column.
 }
 
 WAIFWPop[is.na(WAIFWPop)] <- 0
@@ -658,10 +704,10 @@ melted_WAIFWPop <- as.data.frame(melted_WAIFWPop)
 
 # Rename population groups
 popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
-melted_WAIFWPop$Var1 <- factor(melted_WAIFWPop$Var1,
+melted_WAIFWPop$Var1 <- factor(melted_WAIFWPop$Var1,   #infectee
 levels = c(1:length(popLabs)),
 labels = popLabs)
-melted_WAIFWPop$Var2 <- factor(melted_WAIFWPop$Var2,
+melted_WAIFWPop$Var2 <- factor(melted_WAIFWPop$Var2,	# infecter
 levels = c(1:length(popLabs)),
 labels = popLabs)
 
@@ -688,14 +734,13 @@ ggplot(data = melted_WAIFWPop, aes(x=Var1, y=Var2, fill=value)) +
 		legend.position = "right") +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 10))
   
-  
-	
-## Plot normalised WAIFW matrix	
-WAIFWPop1 <- sweep(WAIFWPop, 1, groupPopCases, `/`) # normalise by number of cases in each age group 
+
+## Plot Rn matrix	
+WAIFWPop1 <- sweep(WAIFWPop, MARGIN=2, STATS = groupPopCases, FUN =`/`) # number of secondary cases caused by each group
 melted_WAIFWPop1 <- melt(WAIFWPop1)
 melted_WAIFWPop1 <- as.data.frame(melted_WAIFWPop1)
 
-# Rename age groups
+# Rename population groups
 melted_WAIFWPop1$Var1 <- factor(melted_WAIFWPop1$Var1,
 levels = c(1:length(popLabs)),
 labels = popLabs)
@@ -707,7 +752,7 @@ head(melted_WAIFWPop1)
 
 #create new variable from counts
 lower <- 0
-upper <- 1
+upper <- 2
 sep = "-"
 above.char = "+"
 byThis <- 0.05
@@ -727,8 +772,8 @@ N <- nlevels(melted_WAIFWPop1$value)
 	
 ggplot(data = melted_WAIFWPop1, aes(x=Var1, y=Var2, fill=value)) + 
   geom_tile() +
-  scale_fill_manual(values=colours1, guide = guide_legend(keywidth = 3, title = "Prop. of cases", label.theme = element_text(face="plain", angle=0))) + 
-   labs(title = "Proportion of cases attributable to each population group", 
+  scale_fill_manual(values=colours1, guide = guide_legend(keywidth = 3, title = "Rn", label.theme = element_text(face="plain", angle=0))) + 
+   labs(title = "Effective reproduction number attributable to each population group", 
     x = "Population group of infected cases",
     y = "Population group of infecting cases") +
   theme(text = element_text(size=16, face="bold"),
@@ -764,7 +809,7 @@ thisData %>% filter(isRoma == "Y") %>%
 
 # Density plots of distribution of Rn		
 # ** Repeat for each risk factor **  
-ggplot(thisData %>% filter(isRoma == 1), aes(x=RnCombined, fill=(isHospitalised))) +
+ggplot(thisData %>% filter(isMigrant == 1), aes(x=RnCombined)) + #, fill=(isHospitalised))) +
   geom_density(alpha=0.4) + 
   labs(	x = "Effective reproduction number",
 		y = "Probability density") +
@@ -775,10 +820,12 @@ ggplot(thisData %>% filter(isRoma == 1), aes(x=RnCombined, fill=(isHospitalised)
 		text = element_text(size=16)) +
   scale_x_continuous(limits=c(0, 8), breaks=seq(0,upper,by=1)) 
 
-
 # Plot effective reproduction number by age group and population group
 popAge <- thisData %>% filter(isHospitalised != "NA") %>% group_by(popGroup, ageGroup) %>%
-		  summarise(meanRn = mean(RnCombined), medianRn = median(RnCombined), sdRn = sd(RnCombined))
+#popAge <- thisData %>% filter(isHospitalised != "NA" & popGroup!=2) %>% group_by(popGroup, ageGroup) %>% # omitting migrants to allow rescaled plot
+		  summarise(meanRnTime = mean(RnTime), medianRnTime = median(RnTime), sdRnTime = sd(RnTime),
+					meanRnPlace = mean(RnPlace), medianRnPlace = median(RnPlace), sdRnPlace = sd(RnPlace),
+					meanRnCombined = mean(RnCombined), medianRnCombined = median(RnCombined), sdRnTime = sd(RnCombined))
 
 popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
 popAge$popGroup <- factor(popAge$popGroup,
@@ -787,7 +834,7 @@ popAge$popGroup <- factor(popAge$popGroup,
 	
 
 lower <- 0
-upper <- 3
+upper <- 7
 sep = "-"
 above.char = "+"
 byThis <- 0.25
@@ -796,13 +843,13 @@ popAgeLabs <- c(paste(seq(lower, upper - byThis, by = byThis),
                       seq(lower + byThis, upper, by = byThis),
                       sep = sep))
 		   
-popAge$meanRn <- cut(popAge$meanRn, breaks = seq(lower,upper,by=byThis), labels = popAgeLabs, include.lowest=TRUE, right=FALSE)
+popAge$RnCombGroup <- cut(popAge$meanRnCombined, breaks = seq(lower,upper,by=byThis), labels = popAgeLabs, include.lowest=TRUE, right=FALSE)
 				   
 
-colours1 <- colorRampPalette(ECDCcol)(length(unique(popAge$meanRn)))
-N <- nlevels(popAge$meanRn)
+colours1 <- colorRampPalette(ECDCcol)(length(unique(popAge$RnCombGroup)))
+N <- nlevels(popAge$RnCombGroup)
 	
-ggplot(data = popAge, aes(x=ageGroup, y=popGroup, fill=meanRn)) + 
+ggplot(data = popAge, aes(x=ageGroup, y=popGroup, fill=RnCombGroup)) + 
   geom_tile() +
   scale_fill_manual(values=colours1, guide = guide_legend(keywidth = 3, title = "Rn", label.theme = element_text(face="plain", angle=0))) + 
    labs(title = "Effective reproduction number", x = "Age group", y = "Population group") +
@@ -918,7 +965,7 @@ ggplot(data = melted_WAIFW, aes(x=Var1, y=Var2, fill=value)) +
    labs(title = "Number of cases attributable to each age group", 
     x = "Age group of infected cases",
     y = "Age group of infecting cases") +
-  theme(text = element_text(size=16, face="bold"),
+  theme(text = element_text(size=14, face="bold"),
         axis.text.x = element_text(angle=60, hjust=1.1),
 		axis.title.x = element_text(vjust = 1.5),
 		legend.position = "right") +
@@ -967,7 +1014,7 @@ ggplot(data = melted_WAIFW1, aes(x=Var1, y=Var2, fill=value)) +
    labs(title = "Proportion of cases attributable to each age group", 
     x = "Age group of infected cases",
     y = "Age group of infecting cases") +
-  theme(text = element_text(size=16, face="bold"),
+  theme(text = element_text(size=14, face="bold"),
         axis.text.x = element_text(angle=60, hjust=1.1),
 		axis.title.x = element_text(vjust = 1.5),
 		legend.position = "right") 
@@ -977,9 +1024,9 @@ ggplot(data = melted_WAIFW1, aes(x=Var1, y=Var2, fill=value)) +
 
 
 i <- 1419
-plot(nLike3[i,])
-points(nLike1[i,], col="red")
-points(nLike2[i,], col="blue")
+plot(nLike3[i,], pch=20, col=ECDCcol[1])
+points(nLike1[i,], pch=20, col=ECDCcol[2])
+points(nLike2[i,], pch=20, col=ECDCcol[3])
 
 
 
@@ -1077,11 +1124,6 @@ theseHosps$popGroup <- factor(theseHosps$popGroup)
 ggplot(data = theseHosps, aes(x=onsetDate, fill=popGroup) ) +
  geom_bar(width= 0.99) +
   labs(	x = "Date of symptom onset", y = "Count") 
-
-# Bubble plot to show population group and number of attributable infections
-ggplot(data = theseHosps, aes(x = onsetDate, y = code)) + 
-  geom_point(aes(fill = popGroup, size = RnCombined), colour="black", pch=22, alpha = 0.7) +
-  scale_size(range = c(0.25, 5))  # Adjust the range of points size
 
 # Bubble plot to show population group and number of attributable infections
 ggplot(data = theseHosps, aes(x = onsetDate, y = code)) + 
