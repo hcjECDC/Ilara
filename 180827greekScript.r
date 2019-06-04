@@ -56,7 +56,7 @@ MMRData <- read_csv("MMR2.csv", col_names=TRUE, col_types = cols(resPostcode = c
 popData <- read_csv("pop2015.csv", col_names=TRUE) 
 muncPopData <- read_csv("popMunc.csv", col_names=TRUE) 
 muncPopData$muncCode[c(1:41)] <- sprintf("%04d", muncPopData$muncCode[c(1:41)]) # re-format to match mapMunc
-#latLong <- read_csv("LatLong.csv", col_names=TRUE) # With 'workingGreekData.csv co-ordinates and postcodes are included
+#latLong <- read_csv("LatLong.csv", col_names=TRUE) # With '180509greekData.csv' co-ordinates and postcodes are included
 
 ##################
 ## MMR coverage ##
@@ -101,14 +101,39 @@ twoPlusDoses <- data3 %>% filter(resNUTS3 != "#N/A" & doses>1) %>%
 oneDosePC <- data3 %>% filter(resPostcode != "#N/A" & doses==1) %>%
 					arrange(resPostcode) %>%
 					group_by(resPostcode) %>%
-					summarise(Total = n()) %>%
+					summarise(oneDose = n()) %>%
 					rename(postcode = resPostcode) 
 					
 twoPlusDosesPC <- data3 %>% filter(resPostcode != "#N/A" & doses>1) %>%
 						  arrange(resPostcode) %>%
 						  group_by(resPostcode) %>%
-					      summarise(Total = n())%>%
+					      summarise(twoPlusDoses = n())%>%
 						  rename(postcode = resPostcode) 
+
+# Incidence by postcode
+postcodeRatio <- thisData %>% filter(age <= 3) %>%
+							    group_by(postcode, popGroup) %>% 
+								mutate(nCases=n()) %>% 
+								distinct(postcode, .keep_all=TRUE) %>% # this way we keep all other variables, as opposed to summarise where we lose them
+								select(postcode, popGroup, nCases, muncCode)
+
+postcodeRatio <- left_join(postcodeRatio, oneDosePC, by="postcode")
+postcodeRatio <- left_join(postcodeRatio, twoPlusDosesPC, by="postcode") %>%
+							mutate(ratio1 = nCases/(oneDose+twoPlusDoses),
+								   ratio2 = nCases/twoPlusDoses)
+
+muncRatio <- postcodeRatio %>% group_by(muncCode) %>%
+								summarise(nCases = sum(nCases),
+										  oneDose = sum(oneDose),
+										  twoPlusDoses = sum(twoPlusDoses)) %>%
+								mutate(ratio1 = nCases/(oneDose+twoPlusDoses),
+									   ratio2 = nCases/twoPlusDoses,
+									   logRatio1 = log(ratio1),
+									   logRatio2 = log(ratio2))
+
+							   
+muncRatio$muncCode[c(1:41)] <- sprintf("%04d", muncRatio$muncCode[c(1:41)]) # re-format to match mapMunc						
+				
 						  
 # Population by postcode
 popPostcode <- popData %>% filter(is.na(postcode)==FALSE) %>%
@@ -144,13 +169,13 @@ MMRpopCoverage <- full_join(MMRpopCoverage, twoPlusDosesPC, by="postcode") %>%
 					mutate(overallCoverage = sum(coverage1,coverage2plus, na.rm=TRUE)) %>%
 					mutate(overallCoverage = min(overallCoverage,1)) %>% # discrepancy with population denominator means a couple of postcodes have coverage > 1. Recode.
 					mutate(unvaccinated = population * (1-overallCoverage))
-
-infantCasesPC <- thisData %>% filter(age==2) %>%
+					
+infantCasesPop <- thisData %>% filter(age <= 3) %>%
 							  group_by(popGroup, postcode) %>% 
 							  summarise(nCases = n()) %>%
 							  select(postcode, popGroup, nCases)
 							  
-MMRpopCoverage <- full_join(MMRpopCoverage, infantCasesPC, by="postcode") %>%
+MMRpopCoverage <- full_join(MMRpopCoverage, infantCasesPop, by="postcode") %>%
 					mutate(incidence = nCases / unvaccinated) %>%
 					filter(incidence < 5)
 					
@@ -184,7 +209,7 @@ labs1 <- c("0-0.59", paste(seq(lower, upper - 0.05, by = by),
                  seq(lower + by - 0.01, upper, by = by),
                  sep = sep))
 		   
-MMRcoverage$classCoverage1 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.05)), labels = labs1, include.lowest=FALSE, right=FALSE)
+MMRcoverage$classCoverage1 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
    
 ## 2+ doses
 lower <- 0.3
@@ -196,7 +221,7 @@ labs2 <- c("0-0.29", paste(seq(lower, upper - 0.1, by = by),
                  seq(lower + by - 0.01, upper, by = by),
                  sep = sep))
 		   
-MMRcoverage$classCoverage2 <- cut(MMRcoverage$overallCoverage, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
+MMRcoverage$classCoverage2 <- cut(MMRcoverage$coverage2plus, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
 
 							   
 ## Define classes for municipality population	
@@ -205,7 +230,20 @@ labs3 <- c("100-999", "1000-9999", "10000-19999", "20000-29999", "30000-39999", 
 		   
 muncPopData$classPop <- cut(muncPopData$muncPop, breaks = breaks3, labels = labs3, include.lowest=FALSE, right=FALSE)
    
-   
+								   
+## Define classes for log (case / vaccine ratio)	
+lower <- -8
+upper <- 0
+sep = " to "
+by1 <- 1
+ 
+labs1 <- c(paste(seq(lower, (upper - by1), by = by1),
+                 seq((lower + by1), upper, by = by1),
+                 sep = sep))
+		   
+muncRatio$classLogRatio1 <- cut(muncRatio$logRatio1, breaks = c(seq(lower,upper,by=by1)), labels = labs1, include.lowest=FALSE, right=FALSE)
+muncRatio$classLogRatio2 <- cut(muncRatio$logRatio2, breaks = c(seq(lower,upper,by=by1)), labels = labs1, include.lowest=FALSE, right=FALSE)
+      
 ###################
 ## Plotting maps ##			   
 ###################
@@ -251,7 +289,7 @@ setwd(dir)
 thisData <- data0 %>% filter(is.na(homeLat)==FALSE) %>% # exclude cases with missing latitude/longitude
                       arrange(ourID)
 
-## Code population groups
+## Code and factorise population groups
 thisData <- thisData %>%      
   mutate(popGroup = case_when(isRoma==1    ~ 1,    	## Roma
 							  isMigrant==1 ~ 2,		## Migrant
@@ -259,13 +297,19 @@ thisData <- thisData %>%
 							  TRUE         ~ 4))	## General population
 popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
 
-data1 <- thisData %>% group_by(week=ceiling_date(onsetDate, "week")) # group by week for plotting (this is 'week ending...')
-#data1$popGroup <- as.factor(data1$popGroup)
-
 data1$popGroup <- factor(data1$popGroup,
 					levels = c(1:length(popLabs)),
 					labels = popLabs)
-
+					
+data1 <- thisData %>% group_by(postcode, popGroup, week=ceiling_date(onsetDate, "week")) %>% # group by week for plotting (this is 'week ending...')
+						mutate(nCases=n()) %>% 
+						distinct(postcode, .keep_all=TRUE) %>% # this way we keep all other variables, as opposed to summarise where we lose them
+						select(postcode, popGroup, nCases, week, homeLat, homeLon, placeOfResidence, age, muncCode)
+						
+data1$popGroup <- factor(data1$popGroup,
+					levels = c(1:length(popLabs)),
+					labels = popLabs)
+					
 hospData <- data0 %>% filter(is.na(hosp1Lat)==FALSE) # exclude cases with missing latitude/longitude
 mapHome <- st_as_sf(data1, coords = c('homeLon', 'homeLat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 mapHosp <- st_as_sf(hospData, coords = c('hosp1Lon', 'hosp1Lat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
@@ -299,7 +343,7 @@ thisData <- thisData %>% mutate(muncName = colnames(matrix2)[apply(matrix2,1,whi
 thisData <- left_join(thisData, muncPopData, by="muncName")
 
 # Find population of postcode
-#N.B. This is 2015 birth cohort data and is only being used a s a test of principle for coding!!
+#N.B. This is 2015 birth cohort data and is only being used as a test of principle for coding!!
 popPostcode <- popPostcode %>% mutate(postcode = as.character(postcode)) %>%
 							   rename(popPostcode = total)
 thisData <- left_join(thisData, popPostcode, by="postcode") 
@@ -312,9 +356,14 @@ thisData <-  thisData %>% replace_na(list(popPostcode = 1)) # We do not have 201
 ## Greece cases
 map2 <- qtm(mapGreece) +  		
 			tm_shape(mapHome) +
-				tm_symbols(col="popGroup", size=0.15, palette=ECDCcol, shape=20, title.col = c("Population group")) + 
+				tm_symbols(col="popGroup", 
+						   size="nCases",
+						   palette=ECDCcol,
+						   shape=20,
+						   title.col = c("Population group"),
+						   title.size = c("Number of cases")) + 
 			tm_layout(legend.position = c("right", "centre"), 
-						legend.title.size = 1.2,
+						legend.title.size = 1,
 						legend.text.size = 0.75,
 						attr.outside = TRUE,
 						main.title = "Distribution of measles cases by population group", 
@@ -325,9 +374,9 @@ print(map2)
 ## Weekly static
 plot_anim <- qtm(mapGreece) + 		
 				tm_shape(mapHome) +
-					tm_dots(col="popGroup", size=0.05) +
+					tm_dots(col="popGroup", size="nCases") +
 				tm_facets(by = "week", free.coords = FALSE, nrow=6, ncol = 10)  # plot cases by week
-				#tm_facets(along = "week")  # plot cases by week
+				#tm_facets(along = "week")  # plot cases by week. Used for animation
 
 ## Weekly animation				
 # Require ImageMagick for animation
@@ -337,72 +386,88 @@ plot_anim <- qtm(mapGreece) +
 ## Athens cases
 map2A <- qtm(mapAthens) +  		
 			tm_shape(mapHome %>% filter(placeOfResidence %in% athensCodes)) +
-				tm_symbols(col="popGroup", size=0.14, palette=ECDCcol, shape=20, title.col = c("Population group")) + 
+				tm_symbols(col="popGroup",
+						   size="nCases",
+						   palette=ECDCcol,
+						   shape=20,
+						   title.col = c("Population group"),
+						   title.size = c("Number of cases")) + 
 			tm_layout(legend.show = FALSE,	
 					  title = "Athens",
+					  title.size = 1,
 					  title.position = c("right", "bottom"))
 
 print(map2A) 
 	
-#####################
-## Plot MMR uptake ##
-#####################
-# Plot MMR uptake with cases
+#######################
+## Plot MMR coverage ##
+#######################
+# MCV1 in Greece
 map3 <- qtm(mapGreece) +  		
 			tm_shape(mapCoverage, is.master = TRUE) +
-				tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white", alpha=0.8) +
+				tm_polygons(col = "classCoverage1", title = "MCV1 coverage", palette = "Greens", border.col = "white", alpha=0.8) +
 			tm_shape(mapHome %>% filter(age <= 3)) + 
-				tm_dots(col="black", shape=20, size=0.15) +
+				tm_dots(col="black", shape=20, size="nCases") +
 			tm_layout(legend.position = c("right", "centre"), 
 						legend.title.size = 1.2,
 						legend.text.size = 0.75,
 						attr.outside = TRUE,
-						main.title = "MMR uptake and incident cases in children aged 3 and under", 
+						main.title = "MCV1 coverage and incident cases in children aged 3 and under", 
 						main.title.size = 1.2) 
 
 print(map3) 
 	
-# Plot MMR uptake with cases
+# MCV1 in Athens
 map3A <- qtm(mapAthens) +
 			tm_shape(mapCoverageAthens, is.master = TRUE) +
-				tm_polygons(col = "classCoverage1", title = "MMR uptake", palette = "Greens", border.col = "white") +
-
-tm_shape(mapHome %>% filter(popGroup == 4 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkred", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 1 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkblue", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 3 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="lightblue", shape=20, size=0.1) +
-tm_shape(mapHome %>% filter(popGroup == 2 & placeOfResidence %in% athensCodes)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkorange", shape=20, size=0.1)
+				tm_polygons(col = "classCoverage1", title = "MCV1 coverage", palette = "Greens", border.col = "white") +
+			tm_shape(mapHome %>% filter(placeOfResidence %in% athensCodes & age <= 3)) +
+				tm_dots(col="black", shape=20, size="nCases") +
+			tm_layout(legend.show = FALSE,	
+					  title = "Athens",
+					  title.size = 1,
+					  title.position = c("right", "bottom"))	
 	
 print(map3A)	
+
+# MCV2 in Greece
+map4 <- qtm(mapGreece) +  		
+			tm_shape(mapCoverage, is.master = TRUE) +
+				tm_polygons(col = "classCoverage2", title = "MCV2 coverage", palette = "Greens", border.col = "white", alpha=0.8) +
+			tm_shape(mapHome %>% filter(age <= 3)) + 
+				tm_dots(col="black", shape=20, size="nCases") +
+			tm_layout(legend.position = c("right", "centre"), 
+						legend.title.size = 1.2,
+						legend.text.size = 0.75,
+						attr.outside = TRUE,
+						main.title = "MCV2 coverage and incident cases in children aged 3 and under", 
+						main.title.size = 1.2) 
+
+print(map4) 
 	
-plotCases <- qtm(mapGreece) + tm_shape(mapHome %>% filter(age == 2)) + tm_dots(col="darkred", size=0.05) #+
-							 # tm_shape(mapHome %>% filter(age <= 5 & popGroup == 4)) + tm_dots(col="darkred", size=0.05) +
-							 # tm_shape(mapHome %>% filter(age <= 3 & popGroup == 4)) + tm_dots(col="darkblue", size=0.05) 
-							 # tm_shape(mapHosp) + tm_dots(col="darkblue", size=0.075) 
-print(plotCases)
+# MCV2 in Athens
+map4A <- qtm(mapAthens) +
+			tm_shape(mapCoverageAthens, is.master = TRUE) +
+				tm_polygons(col = "classCoverage2", title = "MCV2 coverage", palette = "Greens", border.col = "white") +
+			tm_shape(mapHome %>% filter(placeOfResidence %in% athensCodes & age <= 3)) +
+				tm_dots(col="black", shape=20, size="nCases") +
+			tm_layout(legend.show = FALSE,	
+					  title = "Athens",
+					  title.size = 1,
+					  title.position = c("right", "bottom"))	
+	
+print(map4A)	
 
+# Plot ratio of cases to vaccine doses by municipality
+muncRatio <- muncRatio %>% mutate(KALCODE = as.factor(muncCode)) %>%
+							 select(-muncCode)
+							 
+mapMuncRatio <- left_join(mapMunc, muncRatio, by="KALCODE") %>%   # combine geographic data with population
+					filter(oneDose != "NA")
 
-# Plot population by municipality		
-muncPopData <- muncPopData %>% mutate(KALCODE = as.factor(muncCode))  
-mapMuncPop <- left_join(mapMunc, muncPopData, by="KALCODE")# %>%   # combine geographic data with population
-			 #  filter(geo != "NA")
-
-map5 <- qtm(mapMunc) + #tm_fill("lightgrey") + 
-
-tm_shape(mapMuncPop, is.master = TRUE) +
-	tm_polygons(col = "classPop", title = "Population", palette = "Greens") +#, border.col = "white") #+
-	tm_shape(mapHome %>% filter(popGroup == 4)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkred", shape=20, size=0.1) +
-	tm_shape(mapHome %>% filter(popGroup == 1)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkblue", shape=20, size=0.1) +
-	tm_shape(mapHome %>% filter(popGroup == 3)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="lightblue", shape=20, size=0.1) +
-	tm_shape(mapHome %>% filter(popGroup == 2)) +#filter(age <= 3 & popGroup == 4)) +
-	tm_dots(col="darkorange", shape=20, size=0.1) 
-
+map5 <- qtm(mapMunc) + 
+			tm_shape(mapMuncRatio, is.master = TRUE) +
+				tm_polygons(col = "classLogRatio1", title = "Incident cases per vaccine dose", palette = "Greens", border.col = "white") # not strictly no.of doses
 print(map5) 
 	
 
@@ -1141,3 +1206,4 @@ latinNames <- stri_trans_general(mapMunc$LEKTIKO, "Greek-Latin")
 write.csv(latinNames, file = "muncNames.csv", row.names = FALSE)	
 write.csv(mapMunc$KALCODE, file = "muncCodes.csv", row.names = FALSE)	
     
+	
