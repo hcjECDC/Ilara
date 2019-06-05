@@ -112,15 +112,23 @@ twoPlusDosesPC <- data3 %>% filter(resPostcode != "#N/A" & doses>1) %>%
 
 # Incidence by postcode
 postcodeRatio <- thisData %>% filter(age <= 3) %>%
-							    group_by(postcode, popGroup) %>% 
+							    group_by(postcode) %>% 
 								mutate(nCases=n()) %>% 
 								distinct(postcode, .keep_all=TRUE) %>% # this way we keep all other variables, as opposed to summarise where we lose them
-								select(postcode, popGroup, nCases, muncCode)
+								select(postcode, nCases, muncCode)
 
 postcodeRatio <- left_join(postcodeRatio, oneDosePC, by="postcode")
 postcodeRatio <- left_join(postcodeRatio, twoPlusDosesPC, by="postcode") %>%
 							mutate(ratio1 = nCases/(oneDose+twoPlusDoses),
 								   ratio2 = nCases/twoPlusDoses)
+
+propPopGroup <- thisData %>% filter(age <= 3) %>%
+							  group_by(muncCode, popGroup) %>% 
+							  dplyr::summarise(n = n()) %>%
+							  mutate(freq = n / sum(n)) %>%
+							  filter(popGroup == 1) # select proportion of Roma
+							  
+ 
 
 muncRatio <- postcodeRatio %>% group_by(muncCode) %>%
 								summarise(nCases = sum(nCases),
@@ -131,6 +139,7 @@ muncRatio <- postcodeRatio %>% group_by(muncCode) %>%
 									   logRatio1 = log(ratio1),
 									   logRatio2 = log(ratio2))
 
+muncRatio <- left_join(muncRatio, propPopGroup)	
 							   
 muncRatio$muncCode[c(1:41)] <- sprintf("%04d", muncRatio$muncCode[c(1:41)]) # re-format to match mapMunc						
 				
