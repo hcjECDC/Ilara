@@ -30,7 +30,7 @@ ECDCcol <- sapply(strsplit(myColours, " "), function(x)
 
 ## Measles parameters
 mean1 <- 11.7 # mean of normal distribution for serial interval (days) ##Vink et al. 2014
-sd1 <- 0.92 # standard deviation of normal distribution for serial interval (days)  ##Vink et al. 2014
+sd1 <- 2 # standard deviation of normal distribution for serial interval (days)  ##Vink et al. 2014
 
 ## Read in line list
 data0 <- read_csv("workingGreekData.csv", col_names=TRUE)
@@ -109,6 +109,7 @@ twoPlusDosesPC <- data3 %>% filter(resPostcode != "#N/A" & doses>1) %>%
 						  group_by(resPostcode) %>%
 					      summarise(twoPlusDoses = n())%>%
 						  rename(postcode = resPostcode) 
+						  
 
 # Incidence by postcode
 postcodeRatio <- thisData %>% filter(age <= 3) %>%
@@ -164,38 +165,14 @@ MMRcoverage <- full_join(MMRcoverage, twoPlusDoses, by="NUTS3Code") %>%
 			   rename(twoPlusDoses = Total) %>%
 			   mutate(coverage1 = oneDose/population) %>%
 			   mutate(coverage2plus = twoPlusDoses/population) %>%
-			   mutate(overallCoverage = coverage1 + coverage2plus)
+			   mutate(overallCoverage = coverage1 + coverage2plus) %>%
+			   mutate(RnVaccine = 15 * (1-overallCoverage)) %>%
+			   mutate(unvaccinated = population * (1-overallCoverage))
 
-# MMR coverage at postcode resolution
-MMRpopCoverage <- full_join(popPostcode, oneDosePC, by="postcode")
-MMRpopCoverage <- full_join(MMRpopCoverage, twoPlusDosesPC, by="postcode") %>%
-					rename(population = popPostcode) %>%
-					rename(oneDose = Total.x) %>%
-					rename(twoPlusDoses = Total.y) %>%
-					mutate(coverage1 = oneDose/population) %>%
-					mutate(coverage2plus = twoPlusDoses/population) %>%  
-					rowwise() %>% 
-					mutate(overallCoverage = sum(coverage1,coverage2plus, na.rm=TRUE)) %>%
-					mutate(overallCoverage = min(overallCoverage,1)) %>% # discrepancy with population denominator means a couple of postcodes have coverage > 1. Recode.
-					mutate(unvaccinated = population * (1-overallCoverage))
-					
-infantCasesPop <- thisData %>% filter(age <= 3) %>%
-							  group_by(popGroup, postcode) %>% 
-							  summarise(nCases = n()) %>%
-							  select(postcode, popGroup, nCases)
-							  
-MMRpopCoverage <- full_join(MMRpopCoverage, infantCasesPop, by="postcode") %>%
-					mutate(incidence = nCases / unvaccinated) %>%
-					filter(incidence < 5)
-					
-# Plot incidence rate among unvaccinated. Caution! Could be mismatch with population denominator due to migration or age cohort effects (2015 birth vs. 2 years old)
-ggplot(MMRpopCoverage, aes(incidence, fill=factor(popGroup))) +
-+     geom_histogram(bins=50)
 
-					
 ## 2010 NUTS-3 code (Attiki) was subdivided into 7 codes in 2013 but we need to update population data. Average for now.
 athensCodes <- c(paste("EL30", seq(1,7), sep=""))	
-athensCodes1 <- athensCodes[c(1:6)] # omit Piraeus
+#athensCodes1 <- athensCodes[c(1:6)] # omit Piraeus
 		   
 expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
 								slice(rep(1, each=7)) %>%	          # copy Attiki entry 7 times
@@ -205,7 +182,49 @@ expandAthens <- MMRcoverage %>% select(-NUTS3Code) %>%
 										   
 MMRcoverage <- 	bind_rows(MMRcoverage[-1,], expandAthens)	%>%	   
 			    rename(geo = NUTS3Code)   # to join with Eurostat shapefile 
-							
+				
+	
+infantCasesPop <- thisData %>% filter(age == 2) %>%
+							  group_by(popGroup, placeOfResidence) %>% 
+							  #group_by(postcode) %>% 
+							  summarise(nCases = n()) %>%
+							  mutate(geo = placeOfResidence) %>%
+							  select(geo, popGroup, nCases)
+							  #select(postcode, nCases)
+							  
+MMRcoverage <- full_join(MMRcoverage, infantCasesPop, by="geo") %>%
+					mutate(proportion = 100 * (nCases / unvaccinated)) 
+
+MMRcoverage$popGroup <- factor(MMRcoverage$popGroup,
+							levels = c(1:length(popLabs)),
+							labels = popLabs)
+
+					
+# Plot proportion of susceptibles who are infected. Caution! Could be mismatch with population denominator due to migration or age cohort effects (2015 birth vs. 2 years old)
+ggplot(MMRcoverage, aes(x=geo, y=proportion)) +
+     geom_point() +
+	 labs(x = "NUTS-3 region",
+	   y = "nCases",
+	   fill = "") +
+	 theme(panel.grid.major = element_blank(), 
+		panel.grid.minor = element_blank(), 
+		panel.background = element_blank(),
+		axis.line = element_line(colour = "black"),
+		text = element_text(size=14)) 
+
+					
+
+# MMR coverage at postcode resolution
+MMRpopCoverage <- full_join(popPostcode, oneDosePC, by="postcode")
+MMRpopCoverage <- full_join(MMRpopCoverage, twoPlusDosesPC, by="postcode") %>%
+					rename(population = popPostcode) %>%
+					mutate(coverage1 = oneDose/population) %>%
+					mutate(coverage2plus = twoPlusDoses/population) %>%  
+					rowwise() %>% 
+					mutate(overallCoverage = sum(coverage1,coverage2plus, na.rm=TRUE)) %>%
+					mutate(overallCoverage = min(overallCoverage,1)) %>% # discrepancy with population denominator means a couple of postcodes have coverage > 1. Recode.
+					mutate(unvaccinated = population * (1-overallCoverage))
+						
 									   
 ## Define classes for plotting coverage		
 ## 1 dose
@@ -232,6 +251,18 @@ labs2 <- c("0-0.29", paste(seq(lower, upper - 0.1, by = by),
 		   
 MMRcoverage$classCoverage2 <- cut(MMRcoverage$coverage2plus, breaks = c(0, seq(lower,upper,by=0.1)), labels = labs2, include.lowest=FALSE, right=FALSE)
 
+
+## RnVaccine
+lower <- 0
+upper <- 7
+sep = "-"
+by1 <- 1
+ 
+labs1 <- c(paste(seq(lower, (upper - by1), by = by1),
+                 seq((lower + by1), upper, by = by1),
+                 sep = sep))
+		   
+MMRcoverage$classRnVaccine <- cut(MMRcoverage$RnVaccine, breaks = c(seq(lower,upper,by=by1)), labels = labs1, include.lowest=FALSE, right=FALSE)
 							   
 ## Define classes for municipality population	
 breaks3 <- c(100, 1000, 10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000, 1000000)
@@ -306,10 +337,7 @@ thisData <- thisData %>%
 							  TRUE         ~ 4))	## General population
 popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
 
-data1$popGroup <- factor(data1$popGroup,
-					levels = c(1:length(popLabs)),
-					labels = popLabs)
-					
+	
 data1 <- thisData %>% group_by(postcode, popGroup, week=ceiling_date(onsetDate, "week")) %>% # group by week for plotting (this is 'week ending...')
 						mutate(nCases=n()) %>% 
 						distinct(postcode, .keep_all=TRUE) %>% # this way we keep all other variables, as opposed to summarise where we lose them
@@ -331,6 +359,13 @@ matrix1 <- sf::st_intersects(mapHome, mapGreece, sparse = FALSE) # matrix showin
 colnames(matrix1) <- mapGreece$geo # assign names of NUTS-3 regions
 rownames(matrix1) <- mapHome$ourID
 thisData <- thisData %>% mutate(findRegion = colnames(matrix1)[apply(matrix1,1,which.max)]) # Find name of NUTS-3 region corresponding to Lat. and Long.
+
+map1 <- st_as_sf(distanceData, coords = c('lon', 'lat'), crs = "+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
+st_crs(map1) <- 4326
+matrix1 <- sf::st_intersects(map1, mapGreece, sparse = FALSE) # matrix showing which NUTS-3 region point belongs to.
+colnames(matrix1) <- mapGreece$geo # assign names of NUTS-3 regions
+distanceData <- distanceData %>% mutate(geo = colnames(matrix1)[apply(matrix1,1,which.max)]) # Find name of NUTS-3 region corresponding to Lat. and Long.
+
 
 ## Check whether inferred lat and long match with region
 #checkThese <- thisData %>% filter(findRegion != placeOfResidence) %>%
@@ -467,6 +502,30 @@ map4A <- qtm(mapAthens) +
 	
 print(map4A)	
 
+# RnVaccine in Greece
+map5 <- qtm(mapGreece) +  		
+			tm_shape(mapCoverage, is.master = TRUE) +
+				tm_polygons(col = "classRnVaccine", title = "Rn", palette = "Reds", border.col = "white", alpha=0.8) +
+			tm_layout(legend.position = c("right", "centre"), 
+						legend.title.size = 1.2,
+						legend.text.size = 0.75,
+						attr.outside = TRUE,
+						main.title = "Effective reproduction number according to 2015 MCV1 coverage", 
+						main.title.size = 1.2) 
+
+print(map5) 
+	
+# RnVaccine in Athens
+map5A <- qtm(mapAthens) +
+			tm_shape(mapCoverageAthens, is.master = TRUE) +
+				tm_polygons(col = "classRnVaccine", title = "Rn from MCV1 coverage", palette = "Reds", border.col = "white") +
+				tm_layout(legend.show = FALSE,	
+					  title = "Athens",
+					  title.size = 1,
+					  title.position = c("right", "bottom"))	
+	
+print(map5A)	
+
 # Plot ratio of cases to vaccine doses by municipality
 muncRatio <- muncRatio %>% mutate(KALCODE = as.factor(muncCode)) %>%
 							 select(-muncCode)
@@ -476,7 +535,7 @@ mapMuncRatio <- left_join(mapMunc, muncRatio, by="KALCODE") %>%   # combine geog
 
 map5 <- qtm(mapMunc) + 
 			tm_shape(mapMuncRatio, is.master = TRUE) +
-				tm_polygons(col = "classLogRatio1", title = "Incident cases per vaccine dose", palette = "Greens", border.col = "white") # not strictly no.of doses
+				tm_polygons(col = "classLogRatio1", title = "Log ratio of cases to number vaccinated", palette = "Greens", border.col = "white") # not strictly no.of doses
 print(map5) 
 	
 
@@ -570,6 +629,9 @@ distanceMatrix <- bind_rows(distanceMatrix)%>%
 					mutate(thisCase = as.factor(thisCase))  %>%
 					mutate_at(vars(matches("distance")), as.double) # since gathering/uniting/spreading has coerced to character. SLOW!!
 
+## Start here!!
+
+
 distNames <- paste(sort(thisData$ourID[-1]), "_distance", sep="") # N.B. These are now in order of ourID
 dist1 <- distanceMatrix %>% select(thisCase,distNames) # distances only, re-order columns
 add_row(dist1, thisCase = as.character(max(as.numeric(thisData$ourID)))) # row for highest ID case (all distances calculated by other cases)
@@ -584,9 +646,12 @@ dist2 <- dist1 %>% mutate(ourID = as.numeric(levels(dist1$thisCase))) %>%  # re-
 # N.B. Do we want to re-format these as the distance matrix?
 loc1Names <- paste(sort(thisData$ourID[-1]), "_loc1", sep="")
 loc1 <- distanceMatrix %>% select(thisCase, loc1Names) # location of transmitter
+ 
 
 loc2Names <- paste(sort(thisData$ourID[-1]), "_loc2", sep="")
 loc2 <- distanceMatrix %>% select(thisCase, loc2Names) # location of receiver
+
+
 
 ####################################################
 
@@ -595,8 +660,6 @@ loc2 <- distanceMatrix %>% select(thisCase, loc2Names) # location of receiver
 ## Wallinga-Teunis plus    ##
 ## gravity model           ##
 #############################
-
-## Add in genotype 
 
 # Likelihood based on date of symptom onset alone
 dates1 <- thisData$onsetDate; names(dates1) <- thisData$ourID
@@ -647,6 +710,55 @@ nLike3 <- like3/pmax(minRow3,rowSums(like3)) # normalise and adjust for potentia
 nLike3[is.nan(nLike3)] <- 0
 
 thisData <- thisData %>% mutate(RnCombined = colSums(nLike3)) # calculation of effective reproduction number
+
+## Tidy formatting of data
+# Likelihood matrix
+likeMatrix <- gather(as_tibble(nLike3)) ## !! Double-check this transposition !!
+
+# Location matrix
+locMatrix <- as_tibble(loc1) %>%
+			 mutate(ourID = as.integer(levels(thisCase)),
+					"1_loc1" = rep("NA", nrow(loc1))) %>%
+			 select(-thisCase) %>%
+			 select(ourID, "1_loc1", everything()) %>%
+			 arrange(ourID) %>%
+			 rbind(c(2315, rep(NA, ncol(loc1)))) 
+
+locMatrix1 <- as_tibble(t(locMatrix %>% select(-ourID)))
+			 
+tidyData <- gather(locMatrix1) %>%
+				mutate(toID = rep(thisData$ourID, times=nrow(thisData)),
+					   fromID = rep(thisData$ourID, each=nrow(thisData)),
+					   likelihood = likeMatrix$value) %>%
+				rename(location = value) %>%
+				select(toID, fromID, location, likelihood) %>%
+
+infected <- thisData %>% select(ourID, age1, popGroup, placeOfNotification) %>%
+						 rename(toID = ourID,
+							    toAge = age1,
+								toPopGroup = popGroup,
+								toPlace = placeOfNotification)
+
+infected <- right_join(infected, tidyData) %>%
+			select(toID, toAge, toPopGroup, toPlace)
+
+infector <- tidyData %>% select(fromID, location) %>%
+						 rename(ourID = fromID) 
+						 
+infector <- left_join(infector, distanceData) %>% 
+				select(ourID, location, geo) 
+
+infector <- left_join(infector, thisData) %>% 
+				select(ourID, age1, popGroup, location, geo) %>%
+				rename(fromID = ourID,
+					   fromAge = age1,
+					   fromPopGroup = popGroup,
+					   fromPlace = geo)
+
+tidyData1 <- bind_cols(infected, infector, tidyData %>% select(likelihood))
+
+
+
 
 # Secondary infections before / after hospital admission. **Do not use this!**
 #preAd <- outer(dates1, thisData$hospitalDate, FUN="-")  # Time lag between date of hospitalisation and symptom onset in secondary case
@@ -748,7 +860,7 @@ popMatrix <- cbind(thisData$popGroup, nLike3) # Define matrix with population gr
 popMatrix <- rbind(c(0,thisData$popGroup), popMatrix) 
 
 # Sum the number of inferred cases in each row for each population group
-nPopGroups <- length(unique(thisData$popGroup))   # No. of population groups. Check: will this work if one group is missing?
+nPopGroups <- length(unique(thisData$popGroup))   # No. of population groups. 
 a <- rep(-1, (nPopGroups*nrow(nLike3)))
 dim(a) <- c(nrow(nLike3),nPopGroups)
 
@@ -810,7 +922,7 @@ ggplot(data = melted_WAIFWPop, aes(x=Var1, y=Var2, fill=value)) +
   
 
 ## Plot Rn matrix	
-WAIFWPop1 <- sweep(WAIFWPop, MARGIN=2, STATS = groupPopCases, FUN =`/`) # number of secondary cases caused by each group
+WAIFWPop1 <- sweep(WAIFWPop, MARGIN=1, STATS = groupPopCases, FUN =`/`) # number of secondary cases caused by each group
 melted_WAIFWPop1 <- melt(WAIFWPop1)
 melted_WAIFWPop1 <- as.data.frame(melted_WAIFWPop1)
 
@@ -856,7 +968,99 @@ ggplot(data = melted_WAIFWPop1, aes(x=Var1, y=Var2, fill=value)) +
 		legend.position = "right") +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
   scale_y_discrete(labels = function(x) str_wrap(x, width = 10))
-  
+   
+# Rn by NUTS-3 and population group. Use place of notification!!
+# Create matrix of NUTS-3 regions by population group
+popMatrix <- data.matrix(nLike3)
+popMatrix <- cbind(thisData$popGroup, thisData$popGroup, nLike3) # Define matrix with population group in first row and column and likelihood of i being infected by j in body
+popMatrix <- rbind(c(0,thisData$popGroup), popMatrix) 
+
+# Sum the number of inferred cases in each row for each population group
+nPopGroups <- length(unique(thisData$popGroup))   # No. of population groups. 
+a <- rep(-1, (nPopGroups*nrow(nLike3)))
+dim(a) <- c(nrow(nLike3),nPopGroups)
+
+for (i in 1:nPopGroups){
+a[,i] <- rowSums(popMatrix[-1,which(popMatrix[,1]==i)]) # Group population groups of 'causes' i.e. this is the sum of all cases in each group caused by the person on this row.
+}
+
+
+WAIFWPop <- rep(-1, nPopGroups^2)  
+dim(WAIFWPop) <- c(nPopGroups,nPopGroups)
+
+b <- cbind(thisData$popGroup,a) # re-bind with the population group of the case on each row
+
+for(j in 1:nPopGroups){
+d <- aggregate(b[,(j+1)], by=list(Category=b[,1]), FUN=sum) # sum all the cases which are caused by each population group in turn
+WAIFWPop[,j] <- d[c(1:nPopGroups),2] # Cases are caused by column.
+}
+
+WAIFWPop[is.na(WAIFWPop)] <- 0
+
+groupPopCases <- rowSums(WAIFWPop)  # total no. of cases in each population group
+groupPopCauses <- colSums(WAIFWPop)  # total no. of cases caused by each population group
+
+## Plot WAIFW matrix by population group
+melted_WAIFWPop <- melt(WAIFWPop)
+melted_WAIFWPop <- as.data.frame(melted_WAIFWPop)
+
+# Rename population groups
+popLabs <- c("Roma", "Migrant", "Healthcare worker", "General population")
+melted_WAIFWPop$Var1 <- factor(melted_WAIFWPop$Var1,   #infectee
+levels = c(1:length(popLabs)),
+labels = popLabs)
+melted_WAIFWPop$Var2 <- factor(melted_WAIFWPop$Var2,	# infecter
+levels = c(1:length(popLabs)),
+labels = popLabs)
+
+head(melted_WAIFWPop)
+
+
+
+
+
+nNUTS3 <- length(unique(thisData$placeOfResidence)) # no. of municipalities
+WAIFWNUTS3 <- rep(-1, (nPopGroups*nNUTS3))  
+dim(WAIFWNUTS3) <- c(nNUTS3,nPopGroups)
+
+b <- cbind(as.factor(thisData$placeOfResidence),a) # re-bind with the NUTS-3 region of the case on each row
+
+for(j in 1:nPopGroups){
+d <- aggregate(b[,(j+1)], by=list(Category=b[,1]), FUN=sum) # sum all the cases which are caused by each population group in turn
+WAIFWNUTS3[,j] <- d[c(1:nNUTS3),2] # Cases are caused by column.
+}
+
+WAIFWNUTS3[is.na(WAIFWNUTS3)] <- 0
+
+melted_NUTS3 <- melt(WAIFWNUTS3)
+melted_NUTS3 <- as.data.frame(melted_NUTS3)
+
+# Rename NUTS-3 regions
+melted_NUTS3$geo <- factor(melted_NUTS3$Var1,   #infectee
+						levels = c(1:length(unique(thisData$placeOfResidence))),
+						labels = unique(thisData$placeOfResidence)) 
+					 
+# Rename population groups
+melted_NUTS3$popGroup <- factor(melted_NUTS3$Var2,	# infecter
+						levels = c(1:length(popLabs)),
+						labels = popLabs)
+						
+melted_NUTS3 <- melted_NUTS3 %>%
+				rename(nCasesAttributed = value) %>%
+				select(geo, popGroup, nCasesAttributed)
+				
+head(melted_NUTS3)
+
+# Number of cases in each population group in each NUTS-3 region
+NUTS3Gp <- thisData %>% mutate(geo = placeOfResidence) %>%
+						select(-placeOfResidence) %>%
+						group_by(geo, popGroup) %>%
+					    summarise(nCases = n()) 
+						
+NUTS3Gp$popGroup <- factor(NUTS3Gp$popGroup,	# infecter
+						levels = c(1:length(popLabs)),
+						labels = popLabs)
+
 # Group hospitalisation lag as proxy for severity
 thisData <- thisData %>% 
   mutate(lagGroup = case_when(hospitalisationLag < 0  ~ 1,		## admitted before symptom onset
@@ -1092,18 +1296,14 @@ ggplot(data = melted_WAIFW1, aes(x=Var1, y=Var2, fill=value)) +
         axis.text.x = element_text(angle=60, hjust=1.1),
 		axis.title.x = element_text(vjust = 1.5),
 		legend.position = "right") 
-  
+ 
+# Effective reproduction number
 
-
-
-
+# Comparison of likelihood (time, space, combined
 i <- 1419
 plot(nLike3[i,], pch=20, col=ECDCcol[1])
 points(nLike1[i,], pch=20, col=ECDCcol[2])
 points(nLike2[i,], pch=20, col=ECDCcol[3])
-
-
-
 
 
 #####################################
@@ -1215,4 +1415,3 @@ latinNames <- stri_trans_general(mapMunc$LEKTIKO, "Greek-Latin")
 write.csv(latinNames, file = "muncNames.csv", row.names = FALSE)	
 write.csv(mapMunc$KALCODE, file = "muncCodes.csv", row.names = FALSE)	
     
-	
